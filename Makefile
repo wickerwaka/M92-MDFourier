@@ -46,5 +46,8 @@ $(BUILD_DIR):
 $(GAME_DIR):
 	mkdir -p $@
 
-run: $(COPIED_BINS) $(BUILT_BINS)
+debug: $(COPIED_BINS) $(BUILT_BINS)
 	$(MAME) -debug -rompath $(BUILD_DIR) $(GAME)
+
+run: $(COPIED_BINS) $(BUILT_BINS)
+	$(MAME) -window -rompath $(BUILD_DIR) $(GAME)

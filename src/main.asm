@@ -5,8 +5,18 @@ DATA_SEG equ 0x0
 
 entry:
 	mov ax, DATA_SEG
-	mov es, ax
 	mov ds, ax
+
+	mov ax, 0xf880
+	mov es, ax
+	mov ax, 0
+
+fill:
+	inc ax
+	mov cx, 0x400
+	xor di, di
+	repnz stosw
+	jmp fill
 
 	jmp $
 
