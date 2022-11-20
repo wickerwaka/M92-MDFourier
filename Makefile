@@ -13,6 +13,7 @@ ORIGINAL_BINS = rtl-sh0a.bin rtl-sl0a.bin \
 		rtl-da.bin \
 		rtl-h1-d.bin rtl-l1-d.bin
 
+SRCS = $(SRC_DIR)/main.asm $(SRC_DIR)/util.asm $(SRC_DIR)/constants.asm $(SRC_DIR)/text.asm
 
 
 GAME_DIR = $(BUILD_DIR)/$(GAME)
@@ -26,7 +27,7 @@ all: $(COPIED_BINS) $(BUILT_BINS)
 $(COPIED_BINS): $(GAME_DIR)/%.bin: $(ORIGINAL_DIR)/$(GAME)/%.bin | $(GAME_DIR)
 	cp $< $@
 
-$(BUILD_DIR)/main.rom: $(SRC_DIR)/main.asm $(SRC_DIR)/util.mac | $(BUILD_DIR)
+$(BUILD_DIR)/main.rom: $(SRCS) | $(BUILD_DIR)
 	$(NASM) -f bin -o $@ $<
 
 $(GAME_DIR)/rtl-h0-c.bin: $(BUILD_DIR)/main.rom

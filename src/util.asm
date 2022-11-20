@@ -1,3 +1,6 @@
+%ifndef UTILS_ASM
+%define UTILS_ASM
+
 %macro  multipush 1-*
         %rep  %0
               push    %1
@@ -17,3 +20,8 @@
 
 %define PUSH_NV multipush bx, ds, es, si, di
 %define POP_NV multipop bx, ds, es, si, di
+
+%define addr32(seg,offset) (((seg) << 16) + (offset))
+%define addr20(seg,offset) (((seg) << 4) + (offset))
+
+%endif ; UTILS_ASM

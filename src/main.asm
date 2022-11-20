@@ -2,24 +2,22 @@ CPU 186
 BITS 16
 ORG 0
 
-%include "src/util.mac"
+%include "src/constants.asm"
+%include "src/util.asm"
 
-CODE_SEG equ 0x2000
-DATA_SEG equ 0x4000
-STARTUP_SEG equ 0x07FFF
+;
+; DEFINE SECTIONS
+;
 
-RAM_SEG equ 0xe000
-VRAM_SEG equ 0xd000
+; Code, 32KB max, accessed via CS or CODE_SEG. Near calls only
+section .text start=addr20(CODE_SEG,0) vstart=0
+; Read only data, 32KB max, accessed via CS: or DATA_SEG
+section .data start=addr20(CODE_SEG,0x8000) vstart=0x8000
+; RAM. Uninitialized. Accessed via RAM_SEG or SS:
+section .bss start=0xe0000
 
-VIDEO_SEG equ 0xf000
-REG_VIDEOCONTROL equ 0x9800
-
-
-%define addr32(seg,offset) (((seg) << 16) + (offset))
-%define addr20(seg,offset) (((seg) << 4) + (offset))
-
-
-section vector_table start=0x00000
+; VECTOR TABLE MUST COME FIRST
+section .text
 	dd addr32(CODE_SEG, generic_handler)
 	dd addr32(CODE_SEG, generic_handler)
 	dd addr32(CODE_SEG, generic_handler)
@@ -38,7 +36,16 @@ section vector_table start=0x00000
 	dd addr32(CODE_SEG, generic_handler)
 
 
-section .text start=addr20(CODE_SEG,0) vstart=0
+;
+; MODULES
+;
+
+%include "src/text.asm"
+
+;
+; MAIN ENTRYPOINT
+;
+section .text
 entry:
 	mov ax, DATA_SEG
 	mov ds, ax
@@ -104,11 +111,13 @@ entry:
 	push st_hello_world
 	call print_string
 
-
 	jmp .frame_loop
 
 
 	jmp $
+
+
+
 
 configure_pic:
 	mov al, 0x13
@@ -188,159 +197,6 @@ set_pf_xy:
 	pop bx
 	ret
 
-
-
-; Set text cursor position
-; ah = x, al = y
-set_text_pos:
-	push es
-	mov cx, RAM_SEG
-	mov es, cx
-	mov es:[text_x], ah
-	mov es:[text_y], al
-	pop es
-	ret
-
-; null terminated string in ax
-print_string:
-	push bp
-	mov bp, sp
-	
-	sub sp, 10
-
-.local_x equ -8
-
-	mov [bp - 2], ax ; optional integer args
-	mov [bp - 4], cx
-	mov [bp - 6], dx
-
-	multipush di, si, ds, es, bx
-
-	mov ds, [bp + 6] ; 1st argument
-	mov si, [bp + 4] ; 2nd argument
-.newline:
-	mov ax, RAM_SEG
-	mov es, ax
-	xor cx, cx
-	xor ax, ax
-	
-	; x40
-	mov al, es:[text_y]
-	shl ax, 3
-	mov di, ax
-	shl ax, 2
-	add di, ax
-
-	xor dx, dx
-	mov dl, es:[text_x]
-	mov [bp + .local_x], dx
-	add di, dx
-	shl di, 1
-	add di, text_buffer
-
-	xor ax, ax
-	mov ah, es:[text_color]
-	
-.copy_loop:
-	lodsb
-	cmp al, 0
-	je .done
-
-	cmp al, `\n` ; \n
-	jne .color_check
-	inc byte es:[text_y]
-	jmp .newline
-
-.color_check:
-	cmp al, `^`
-	jne .format_check
-	lodsb
-	cmp al, `^`
-	je .char_output
-	sub al, `0`
-	and al, 0x0f
-	mov es:[text_color], al
-	mov ah, al
-	jmp .copy_loop
-
-.format_check:
-	cmp al, `%`
-	jne .char_output
-	lodsb
-	cmp al, `x`
-	je .hex_output
-	jmp .char_output
-
-.hex_output:
-	mov dx, [bp - 2]
-	mov cx, [bp - 4] ; shift args
-	mov [bp - 2], cx
-	mov cx, [bp - 6]
-	mov [bp - 4], cx
-	mov cx, 4
-.digit_loop:
-	mov bx, dx
-	shr bx, 12
-	and bx, 0xf
-	mov al, cs:[.st_hex_digits + bx]
-	stosw
-	shl dx, 4
-	loop .digit_loop
-	add word [bp + .local_x], 4
-	jmp .copy_loop
-
-.char_output:
-	stosw
-	inc word [bp + .local_x]
-	jmp .copy_loop
-
-.done:
-	mov ax, RAM_SEG
-	mov es, ax
-	mov dx, [bp - 8]
-	mov es:[text_x], dl
-
-	multipop di, si, ds, es, bx
-
-	add sp, 10
-
-	pop bp
-	ret 4
-
-.st_hex_digits: db `0123456789ABCDEF`, 0
-
-copy_text_buffer:
-	PUSH_NV
-
-	mov ax, RAM_SEG
-	mov ds, ax
-	mov ax, VRAM_SEG
-	mov es, ax
-	mov si, text_buffer
-	mov di, [text_base]
-
-	mov dx, 30
-	xor bx, bx
-.outer:
-	mov cx, 40
-.inner:
-	lodsw
-	mov bl, ah
-	xor ah, ah
-	stosw
-	mov ax, bx
-	stosw
-	loop .inner
-
-	add di, ( 64 - 40 ) * 4
-	dec dx
-	jnz .outer
-
-	POP_NV
-
-	ret
-
-
 align 4
 vblank_handler:
 	PUSH_ALL
@@ -371,7 +227,7 @@ align 4
 generic_handler:
 	iret
 
-section .data start=addr20(DATA_SEG,0) vstart=0
+section .data
 
 st_hello_world: db `^1HELLO WORLD^0!\n`, 0
 st_status_line: db `^3FRAME COUNT: ^0%x   ^3INPUT: ^0%x\n`, 0
@@ -387,6 +243,19 @@ pal_red: dw 0x0000, 14 dup ( 0x1f << 0 ), 0x0000
 pal_green: dw 0x0000, 14 dup ( 0x1f << 5 ), 0x0000
 pal_blue: dw 0x0000, 14 dup ( 0x1f << 10 ), 0x0000
 
+
+;
+; RAM accessed via DATA_SEG or ss:
+;
+section .bss
+	alignb 2
+	vblank_count: resw 1
+	p1_p2: resw 1
+
+;
+; M92 STARTUP
+;
+
 section .text_start start=addr20(STARTUP_SEG, 0) vstart=0
 startup:
 	cli
@@ -394,20 +263,6 @@ startup:
 	db 0, 0, 0, 0, 0
 	db 0, 0, 0, 0, 0
 
-
-
-section .bss start=0xe0000 align=2
-	text_buffer: resw 1200 ; 40 x 30
-	text_base: resw 1
-	text_x: resb 1
-	text_y: resb 1
-	text_color: resb 1
-
-	str_work: resb 32
-	
-	alignb 2
-	vblank_count: resw 1
-	p1_p2: resw 1
 
 
 
