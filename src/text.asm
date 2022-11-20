@@ -159,3 +159,30 @@ section .bss
 	text_x: resb 1
 	text_y: resb 1
 	text_color: resb 1
+
+%macro  print 1-4
+    [section .data]
+    %%string: db %1, 0
+
+    __?SECT?__
+
+    push cs
+    push %%string
+    %if %0 > 3
+    mov dx, %4
+    %endif
+    %if %0 > 2
+    mov cx, %3
+    %endif
+    %if %0 > 1
+    mov ax, %2
+    %endif
+    call print_string
+%endmacro
+
+%macro  print_at 3+
+    mov ax, (%1 << 8) | %2
+    call set_text_pos
+
+    print %3
+%endmacro

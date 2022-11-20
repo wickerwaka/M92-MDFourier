@@ -2,43 +2,44 @@ CPU 186
 BITS 16
 ORG 0
 
-%include "src/constants.asm"
-%include "src/util.asm"
-
 ;
 ; DEFINE SECTIONS
-;
+; Must come first in this file, no includes before it
 
 ; Code, 32KB max, accessed via CS or CODE_SEG. Near calls only
-section .text start=addr20(CODE_SEG,0) vstart=0
+section .text start=0 vstart=0
 ; Read only data, 32KB max, accessed via CS: or DATA_SEG
-section .data start=addr20(CODE_SEG,0x8000) vstart=0x8000
+section .data start=0x8000 vstart=0x8000
 ; RAM. Uninitialized. Accessed via RAM_SEG or SS:
 section .bss start=0xe0000
 
 ; VECTOR TABLE MUST COME FIRST
 section .text
-	dd addr32(CODE_SEG, generic_handler)
-	dd addr32(CODE_SEG, generic_handler)
-	dd addr32(CODE_SEG, generic_handler)
-	dd addr32(CODE_SEG, generic_handler)
-	dd addr32(CODE_SEG, generic_handler)
-	dd addr32(CODE_SEG, generic_handler)
-	dd addr32(CODE_SEG, generic_handler)
-	dd addr32(CODE_SEG, generic_handler)
-	dd addr32(CODE_SEG, vblank_handler)
-	dd addr32(CODE_SEG, dma_done_handler)
-	dd addr32(CODE_SEG, hint_handler)
-	dd addr32(CODE_SEG, unknown_handler)
-	dd addr32(CODE_SEG, generic_handler)
-	dd addr32(CODE_SEG, generic_handler)
-	dd addr32(CODE_SEG, generic_handler)
-	dd addr32(CODE_SEG, generic_handler)
+	dd generic_handler
+	dd generic_handler
+	dd generic_handler
+	dd generic_handler
+	dd generic_handler
+	dd generic_handler
+	dd generic_handler
+	dd generic_handler
+	dd vblank_handler
+	dd dma_done_handler
+	dd hint_handler
+	dd unknown_handler
+	dd generic_handler
+	dd generic_handler
+	dd generic_handler
+	dd generic_handler
+
 
 
 ;
 ; MODULES
 ;
+
+%include "src/constants.asm"
+%include "src/util.asm"
 
 %include "src/text.asm"
 
@@ -95,21 +96,8 @@ entry:
 
 
 .frame_loop:
-	mov ax, 0
-	call set_text_pos
-
-	push DATA_SEG
-	push st_status_line
-	mov ax, ss:[vblank_count]
-	mov cx, ss:[p1_p2]
-	call print_string
-
-	mov ax, 10 << 8 | 10
-	call set_text_pos
-
-	push DATA_SEG
-	push st_hello_world
-	call print_string
+	print_at 0, 0, `^3FRAME COUNT: ^0%x   ^3INPUT: ^0%x`, ss:[vblank_count], ss:[p1_p2]
+	print_at 10, 10, "^2HELLO WORLD!"
 
 	jmp .frame_loop
 
@@ -228,9 +216,6 @@ generic_handler:
 	iret
 
 section .data
-
-st_hello_world: db `^1HELLO WORLD^0!\n`, 0
-st_status_line: db `^3FRAME COUNT: ^0%x   ^3INPUT: ^0%x\n`, 0
 
 base_palette:
 	dw 0x0000, 0x3d80, 0x3100, 0x2420
