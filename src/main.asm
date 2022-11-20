@@ -10,7 +10,10 @@ STARTUP_SEG equ 0x07FFF
 
 RAM_SEG equ 0xe000
 VRAM_SEG equ 0xd000
+
 VIDEO_SEG equ 0xf000
+REG_VIDEOCONTROL equ 0x9800
+
 
 %define addr32(seg,offset) (((seg) << 16) + (offset))
 %define addr20(seg,offset) (((seg) << 4) + (offset))
@@ -63,29 +66,45 @@ entry:
 	mov cx, 3
 	call load_palette
 
-	; Enable interrupts
-	sti
-
+	mov ax, 0x2000
+	call set_videocontrol
 
 	mov ax, 0
 	call enable_pf
+	mov ax, 0
+	mov cx, -80
+	mov dx, -136
+	call set_pf_xy
 	mov ax, 1
 	call disable_pf
 	mov ax, 2
 	call disable_pf
 
-	mov ax, 4392
+	mov ax, 0
 	mov es:[text_base], ax
 
+	; Enable interrupts
+	sti
+
+
 .frame_loop:
+	mov ax, 0
+	call set_text_pos
+
+	push DATA_SEG
+	push st_status_line
+	mov ax, ss:[vblank_count]
+	mov cx, ss:[p1_p2]
+	call print_string
+
 	mov ax, 10 << 8 | 10
 	call set_text_pos
-	mov ax, st_hello_world
+
+	push DATA_SEG
+	push st_hello_world
 	call print_string
-	mov ax, st_frame_count
-	call print_string
-	mov ax, es:[vblank_count]
-	call print_hex_str
+
+
 	jmp .frame_loop
 
 
@@ -117,7 +136,21 @@ load_palette:
 
 	ret
 
+; ax - new videocontrol value
+set_videocontrol:
+	push ds
+	mov cx, VIDEO_SEG
+	mov ds, cx
+	mov ds:[REG_VIDEOCONTROL], ax
+	pop ds
 
+; ax - return contents of videocontrol
+get_videocontrol:
+	push ds
+	mov ax, VIDEO_SEG
+	mov ds, ax
+	mov ax, ds:[REG_VIDEOCONTROL]
+	pop ds
 
 disable_pf:
 	and ax, 3
@@ -137,6 +170,26 @@ enable_pf:
 	out dx, ax
 	ret
 
+; ax - pf
+; cx - x offset
+; dx - y offset
+set_pf_xy:
+	push bx
+	mov bx, dx
+	and ax, 3
+	shl ax, 3
+	add ax, 0x80
+	mov dx, ax
+	mov ax, bx
+	out dx, ax
+	add dx, 0x4
+	mov ax, cx
+	out dx, ax
+	pop bx
+	ret
+
+
+
 ; Set text cursor position
 ; ah = x, al = y
 set_text_pos:
@@ -150,11 +203,21 @@ set_text_pos:
 
 ; null terminated string in ax
 print_string:
-	push di
-	push si
-	push es
+	push bp
+	mov bp, sp
+	
+	sub sp, 10
 
-	mov si, ax
+.local_x equ -8
+
+	mov [bp - 2], ax ; optional integer args
+	mov [bp - 4], cx
+	mov [bp - 6], dx
+
+	multipush di, si, ds, es, bx
+
+	mov ds, [bp + 6] ; 1st argument
+	mov si, [bp + 4] ; 2nd argument
 .newline:
 	mov ax, RAM_SEG
 	mov es, ax
@@ -170,77 +233,79 @@ print_string:
 
 	xor dx, dx
 	mov dl, es:[text_x]
+	mov [bp + .local_x], dx
 	add di, dx
 	shl di, 1
 	add di, text_buffer
 
 	xor ax, ax
-	mov cl, es:[text_color]
+	mov ah, es:[text_color]
 	
 .copy_loop:
 	lodsb
 	cmp al, 0
 	je .done
 
-	cmp al, 0xa
+	cmp al, `\n` ; \n
 	jne .color_check
 	inc byte es:[text_y]
 	jmp .newline
 
 .color_check:
-	cmp al, 0x7f
-	jna .char
+	cmp al, `^`
+	jne .format_check
+	lodsb
+	cmp al, `^`
+	je .char_output
+	sub al, `0`
 	and al, 0x0f
 	mov es:[text_color], al
-	mov cl, al
+	mov ah, al
 	jmp .copy_loop
 
-.char:
-	mov ah, cl
-	stosw
-	inc dx
-	jmp .copy_loop
+.format_check:
+	cmp al, `%`
+	jne .char_output
+	lodsb
+	cmp al, `x`
+	je .hex_output
+	jmp .char_output
 
-.done:
-	mov ax, RAM_SEG
-	mov es, ax
-	mov es:[text_x], dl
-
-	pop es
-	pop si
-	pop di
-	ret
-
-print_hex_str:
-	push ds
-	push bx
-	push di
-
-	mov dx, ax
-	mov ax, RAM_SEG
-	mov ds, ax
-	mov di, str_work
-
+.hex_output:
+	mov dx, [bp - 2]
+	mov cx, [bp - 4] ; shift args
+	mov [bp - 2], cx
+	mov cx, [bp - 6]
+	mov [bp - 4], cx
 	mov cx, 4
 .digit_loop:
 	mov bx, dx
 	shr bx, 12
 	and bx, 0xf
 	mov al, cs:[.st_hex_digits + bx]
-	ds stosb
+	stosw
 	shl dx, 4
 	loop .digit_loop
+	add word [bp + .local_x], 4
+	jmp .copy_loop
 
-	mov al, 0
-	ds stosb
+.char_output:
+	stosw
+	inc word [bp + .local_x]
+	jmp .copy_loop
 
-	mov ax, str_work
-	call print_string
+.done:
+	mov ax, RAM_SEG
+	mov es, ax
+	mov dx, [bp - 8]
+	mov es:[text_x], dl
 
-	pop di
-	pop bx
-	pop ds
-	ret
+	multipop di, si, ds, es, bx
+
+	add sp, 10
+
+	pop bp
+	ret 4
 
 .st_hex_digits: db `0123456789ABCDEF`, 0
 
@@ -282,6 +347,10 @@ vblank_handler:
 	mov ax, RAM_SEG
 	mov ds, ax
 	inc word ds:[vblank_count]
+
+	in ax, 0x00
+	mov [p1_p2], ax
+
 	call copy_text_buffer
 	POP_ALL
 	iret
@@ -304,8 +373,8 @@ generic_handler:
 
 section .data start=addr20(DATA_SEG,0) vstart=0
 
-st_hello_world: db `\x83HELLO WORLD\x80!\n`, 0
-st_frame_count: db `\x82FRAME COUNT\x80: \x81`, 0
+st_hello_world: db `^1HELLO WORLD^0!\n`, 0
+st_status_line: db `^3FRAME COUNT: ^0%x   ^3INPUT: ^0%x\n`, 0
 
 base_palette:
 	dw 0x0000, 0x3d80, 0x3100, 0x2420
@@ -338,6 +407,7 @@ section .bss start=0xe0000 align=2
 	
 	alignb 2
 	vblank_count: resw 1
+	p1_p2: resw 1
 
 
 
