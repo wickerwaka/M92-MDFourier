@@ -54,6 +54,12 @@ entry:
 	mov ax, RAM_SEG
 	mov ss, ax
 	mov es, ax
+
+	; clear ram
+	xor di, di
+	mov cx, 0x8000
+	rep stosw
+
 	mov sp, 0x0000
 
 	call configure_pic
@@ -196,6 +202,12 @@ vblank_handler:
 	mov [p1_p2], ax
 
 	call copy_text_buffer
+
+	mov ax, VIDEO_SEG
+	mov es, ax
+	mov di, 0x9008
+	mov es:[di], word 0
+
 	POP_ALL
 	iret
 
