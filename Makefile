@@ -13,7 +13,7 @@ ORIGINAL_BINS = rtl-sh0a.bin rtl-sl0a.bin \
 		rtl-da.bin \
 		rtl-h1-d.bin rtl-l1-d.bin
 
-SRCS = $(SRC_DIR)/main.asm $(SRC_DIR)/util.asm $(SRC_DIR)/constants.asm $(SRC_DIR)/text.asm
+SRCS = $(SRC_DIR)/main.asm $(SRC_DIR)/util.asm $(SRC_DIR)/constants.asm $(SRC_DIR)/text.asm $(SRC_DIR)/comms.asm $(SRC_DIR)/cmd.asm
 
 
 GAME_DIR = $(BUILD_DIR)/$(GAME)
@@ -48,13 +48,20 @@ $(BUILD_DIR):
 $(GAME_DIR):
 	mkdir -p $@
 
+.PHONY: original flash_low flash_high run debug
+
 debug: $(COPIED_BINS) $(BUILT_BINS)
 	$(MAME) -window -nomaximize -resolution0 640x480 -debug -rompath $(BUILD_DIR) $(GAME)
 
 run: $(COPIED_BINS) $(BUILT_BINS)
 	$(MAME) -window -rompath $(BUILD_DIR) $(GAME)
 
-.PHONY: original
+flash_low: $(GAME_DIR)/rtl-l0-c.bin
+	minipro -p W27C020 -w $<
+
+flash_high: $(GAME_DIR)/rtl-h0-c.bin
+	minipro -p W27C020 -w $<
+
 original:
 	$(MAME) -debug -rompath $(ORIGINAL_DIR) $(GAME)
 

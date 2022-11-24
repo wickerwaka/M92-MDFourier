@@ -42,6 +42,8 @@ section .text
 %include "src/util.asm"
 
 %include "src/text.asm"
+%include "src/comms.asm"
+%include "src/cmd.asm"
 
 ;
 ; MAIN ENTRYPOINT
@@ -56,6 +58,7 @@ entry:
 	mov es, ax
 
 	; clear ram
+	xor ax, ax
 	xor di, di
 	mov cx, 0x8000
 	rep stosw
@@ -100,18 +103,98 @@ entry:
 	; Enable interrupts
 	sti
 
+	jmp main_process
 
-.frame_loop:
-	print_at 0, 0, `^3FRAME COUNT: ^0%x   ^3INPUT: ^0%x`, ss:[vblank_count], ss:[p1_p2]
-	print_at 10, 10, "^2HELLO WORLD!"
 
-	jmp .frame_loop
+section .bss
+prev_vblank: resw 1
+state: resb 1
 
+ST_WAITING equ 0
+
+section .text
+
+wait_vblank:
+	mov ax, ss:[vblank_count]
+	cmp ss:[prev_vblank], ax
+	je wait_vblank
+	mov ss:[prev_vblank], ax
+	ret
+
+main_process:
+	mov byte ss:[state], 0
+.main_loop:
+	call wait_vblank
+
+	cli
+	call comms_next_cmd ; al contains cmd
+	sti
+
+	xor bx, bx
+	mov bl, al
+	shl bl, 1
+	mov bx, cs:[cmd_table + bx]
+	call bx
+
+.frame_done:
+	print_at 2, 2, `^3FRAME COUNT: ^0%x   ^3INPUT: ^0%x`, ss:[vblank_count], ss:[p3_p4]
+
+	print_at 2, 26, `^3COMMS INDEX: ^0%x   ^3COMMS LEN: ^0%x`, ss:[comms_index], ss:[comms_len]
+
+	jmp .main_loop
 
 	jmp $
 
+section .data
+alignb 2
+fake_comms:
+	;dw 0x0100, fake_comms_1_begin, fake_comms_1_end
+	;dw 0x0200, fake_comms_2_begin, fake_comms_2_end
+fake_comms_end:
 
+fake_comms_1_begin:
+	db CMD_WRITE_BYTES
+	dw 0x0008, RAM_SEG, 0x8000, 0xcbcb, 0xcbcb 
+fake_comms_1_end:
 
+fake_comms_2_begin:
+	db CMD_CALL
+	dw 0x0004, 0x8000, RAM_SEG
+fake_comms_2_end:
+
+section .text
+
+do_fake_comms:
+	PUSH_NV
+
+	mov ax, DATA_SEG
+	mov ds, ax
+	mov ax, RAM_SEG
+	mov es, ax
+	mov si, fake_comms
+
+	mov dx, es:[vblank_count]
+	cmp si, fake_comms_end
+	jge .return
+	
+.loop:
+	lodsw
+	cmp ax, dx
+	je .load_fake
+	add si, 4
+	jmp .loop
+
+.load_fake:
+	push ds
+	lodsw
+	push ax
+	lodsw
+	push ax
+	call comms_load_fake
+
+.return:
+	POP_NV
+	ret
 
 configure_pic:
 	mov al, 0x13
@@ -122,6 +205,7 @@ configure_pic:
 	out 0x42, al
 	mov al, 0xf2
 	out 0x42, al
+	ret
 
 ; ds:ax - palette addr
 ; cx - palette index
@@ -146,6 +230,7 @@ set_videocontrol:
 	mov ds, cx
 	mov ds:[REG_VIDEOCONTROL], ax
 	pop ds
+	ret
 
 ; ax - return contents of videocontrol
 get_videocontrol:
@@ -154,6 +239,7 @@ get_videocontrol:
 	mov ds, ax
 	mov ax, ds:[REG_VIDEOCONTROL]
 	pop ds
+	ret
 
 disable_pf:
 	and ax, 3
@@ -198,8 +284,14 @@ vblank_handler:
 	mov ds, ax
 	inc word ds:[vblank_count]
 
+	call comms_read
+
+	;call do_fake_comms
+
 	in ax, 0x00
 	mov [p1_p2], ax
+	in ax, 0x06
+	mov [p3_p4], ax
 
 	call copy_text_buffer
 
@@ -228,7 +320,7 @@ generic_handler:
 	iret
 
 section .data
-
+alignb 2
 base_palette:
 	dw 0x0000, 0x3d80, 0x3100, 0x2420
 	dw 0x233c, 0x2b1c, 0x0e16, 0x5f59
@@ -248,6 +340,7 @@ section .bss
 	alignb 2
 	vblank_count: resw 1
 	p1_p2: resw 1
+	p3_p4: resw 1
 
 ;
 ; M92 STARTUP
@@ -259,7 +352,6 @@ startup:
 	jmp CODE_SEG:entry
 	db 0, 0, 0, 0, 0
 	db 0, 0, 0, 0, 0
-
 
 
 

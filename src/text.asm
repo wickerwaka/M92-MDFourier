@@ -1,5 +1,35 @@
+%ifndef TEXT_ASM
+%define TEXT_ASM
+
 %include "src/util.asm"
 %include "src/constants.asm"
+
+%macro  print 1-4
+    [section .data]
+    %%string: db %1, 0
+
+    __?SECT?__
+
+    push cs
+    push %%string
+    %if %0 > 3
+    mov dx, %4
+    %endif
+    %if %0 > 2
+    mov cx, %3
+    %endif
+    %if %0 > 1
+    mov ax, %2
+    %endif
+    call print_string
+%endmacro
+
+%macro  print_at 3+
+    mov ax, (%1 << 8) | %2
+    call set_text_pos
+
+    print %3
+%endmacro
 
 section .text
 ; Set text cursor position
@@ -80,16 +110,36 @@ print_string:
 	jne .char_output
 	lodsb
 	cmp al, `x`
-	je .hex_output
+	je .hex_word_output
+	cmp al, `l`
+	je .hex_low_output
+	cmp al, `h`
+	je .hex_high_output
 	jmp .char_output
 
-.hex_output:
+.hex_word_output:
+    mov cx, 4
 	mov dx, [bp - 2]
-	mov cx, [bp - 4] ; shift args
-	mov [bp - 2], cx
-	mov cx, [bp - 6]
-	mov [bp - 4], cx
-	mov cx, 4
+    jmp .shift_args
+
+.hex_low_output:
+    mov cx, 2
+    mov dx, [bp - 2]
+    mov dh, dl
+    jmp .shift_args
+
+.hex_high_output:
+    mov cx, 2
+    mov dx, [bp - 2]
+
+.shift_args:
+	mov bx, [bp - 4] ; shift args
+	mov [bp - 2], bx
+	mov bx, [bp - 6]
+	mov [bp - 4], bx
+
+	add word [bp + .local_x], cx
+
 .digit_loop:
 	mov bx, dx
 	shr bx, 12
@@ -98,7 +148,6 @@ print_string:
 	stosw
 	shl dx, 4
 	loop .digit_loop
-	add word [bp + .local_x], 4
 	jmp .copy_loop
 
 .char_output:
@@ -152,37 +201,116 @@ copy_text_buffer:
 
 	ret
 
+clear_text:
+    PUSH_NV
+
+	mov ax, RAM_SEG
+	mov es, ax
+	mov di, text_buffer
+
+    mov cx, 1200
+    mov ax, 0
+    rep stosw
+
+    POP_NV
+    ret
+
+; seg, offset, count
+draw_memory_word:
+    mov ax, 1
+    jmp draw_memory
+
+; seg, offset, count
+draw_memory_byte:
+    mov ax, 0
+    jmp draw_memory
+
+draw_memory:
+	push bp
+	mov bp, sp
+	
+	sub sp, 10
+
+.pos equ -2
+.count equ 4
+
+    PUSH_NV
+
+    mov word [bp + .pos], (6 << 8) | 4
+    mov di, ax ; di, 1 is word size, 0 is byte
+
+	mov ds, [bp + 8] ; 1st argument
+	mov si, [bp + 6] ; 2nd argument
+
+    mov ax, [bp + .pos]
+    call set_text_pos
+
+    add word [bp + .pos], 2
+
+    print `^0MEMORY %x:%x`, ds, si
+
+.line_loop:
+    mov ax, [bp + .pos]
+    call set_text_pos
+
+    mov ax, si
+    push cs
+    push .addr_str
+    call print_string
+
+    cmp di, 0
+    jne .word_line
+
+.byte_line:
+    mov bx, 8
+.byte_loop:
+    lodsb
+    push cs
+    push .hex_byte_str
+    call print_string
+    dec word [bp + .count]
+    jz .early_out
+    dec bx
+    jnz .byte_loop
+    jmp .end_line
+
+.word_line:
+    mov bx, 4
+.word_loop:
+    lodsw
+    push cs
+    push .hex_word_str
+    call print_string
+    dec word [bp + .count]
+    jz .early_out
+    dec bx
+    jnz .word_loop
+
+.end_line:
+    inc word [bp + .pos]
+    jmp .line_loop 
+
+.early_out:
+    POP_NV
+
+    add sp, 10
+
+    pop bp
+    ret 6
+
+.addr_str: db "%l:", 0
+.hex_word_str: db " %x", 0
+.hex_byte_str: db " %l", 0
+
+
 
 section .bss
+    alignb 2
 	text_buffer: resw 1200 ; 40 x 30
 	text_base: resw 1
 	text_x: resb 1
 	text_y: resb 1
 	text_color: resb 1
 
-%macro  print 1-4
-    [section .data]
-    %%string: db %1, 0
 
-    __?SECT?__
-
-    push cs
-    push %%string
-    %if %0 > 3
-    mov dx, %4
-    %endif
-    %if %0 > 2
-    mov cx, %3
-    %endif
-    %if %0 > 1
-    mov ax, %2
-    %endif
-    call print_string
-%endmacro
-
-%macro  print_at 3+
-    mov ax, (%1 << 8) | %2
-    call set_text_pos
-
-    print %3
-%endmacro
+%endif ; TEST_ASM
