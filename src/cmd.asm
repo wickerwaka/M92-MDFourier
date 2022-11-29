@@ -16,6 +16,8 @@ CMD_OUT_WORD equ 6
 CMD_IN_BYTE equ 7
 CMD_IN_WORD equ 8
 CMD_CALL equ 9
+CMD_MEMSET equ 10
+CMD_PRINT_AT equ 11
 
 section .data
 cmd_table:
@@ -29,6 +31,8 @@ cmd_table:
     dw cmd_in_byte
     dw cmd_in_word
     dw cmd_call
+    dw cmd_memset
+    dw cmd_print_at
 
 section .text
 cmd_none:
@@ -222,6 +226,53 @@ cmd_call:
 
 	POP_NV
 	ret
+
+cmd_memset:
+	PUSH_NV
+
+	call clear_text
+
+	mov ax, RAM_SEG
+	mov ds, ax
+	mov si, ds:[cmd_data_start]
+
+	print_at 4, 8, "MEMSET %x BYTES AT %x:%x", [si + 4], [si + 0], [si + 2]
+
+	mov es, [si + 0]
+	mov di, [si + 2]
+	mov cx, [si + 4]
+    mov al, [si + 6]
+	rep stosb
+
+	POP_NV
+	ret
+
+cmd_print_at:
+	PUSH_NV
+
+	mov ax, RAM_SEG
+	mov ds, ax
+	mov si, ds:[cmd_data_start]
+
+    mov al, [si]
+    cmp al, 0
+    jz .noclear
+
+    call clear_text
+
+.noclear:
+    mov ax, [si + 1]
+    call set_text_pos
+
+    add si, 2
+    push ds
+    push si
+    call print_string
+
+	POP_NV
+	ret
+
+
 
 
 %endif ; CMD_ASM

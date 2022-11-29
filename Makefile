@@ -13,8 +13,6 @@ ORIGINAL_BINS = rtl-sh0a.bin rtl-sl0a.bin \
 		rtl-da.bin \
 		rtl-h1-d.bin rtl-l1-d.bin
 
-SRCS = $(SRC_DIR)/main.asm $(SRC_DIR)/util.asm $(SRC_DIR)/constants.asm $(SRC_DIR)/text.asm $(SRC_DIR)/comms.asm $(SRC_DIR)/cmd.asm
-
 
 GAME_DIR = $(BUILD_DIR)/$(GAME)
 COPIED_BINS = $(addprefix $(GAME_DIR)/, $(ORIGINAL_BINS))
@@ -27,8 +25,8 @@ all: $(COPIED_BINS) $(BUILT_BINS)
 $(COPIED_BINS): $(GAME_DIR)/%.bin: $(ORIGINAL_DIR)/$(GAME)/%.bin | $(GAME_DIR)
 	cp $< $@
 
-$(BUILD_DIR)/main.rom: $(SRCS) | $(BUILD_DIR)
-	$(NASM) -f bin -o $@ $<
+$(BUILD_DIR)/main.rom: | $(BUILD_DIR)
+	$(NASM) -f bin -o $@ -MD ${BUILD_DIR}/main.dep $<
 
 $(GAME_DIR)/rtl-h0-c.bin: $(BUILD_DIR)/main.rom
 	$(SPLIT_ROM) $@ $< 0x00001 0x80000
@@ -65,3 +63,4 @@ flash_high: $(GAME_DIR)/rtl-h0-c.bin
 original:
 	$(MAME) -debug -rompath $(ORIGINAL_DIR) $(GAME)
 
+-include $(BUILD_DIR)/main.dep

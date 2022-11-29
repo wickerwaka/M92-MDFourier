@@ -63,6 +63,9 @@ entry:
 	mov cx, 0x8000
 	rep stosw
 
+	mov di, USER_CODE
+	mov word es:[di], 0xcbcb ; ret far
+
 	mov sp, 0x0000
 
 	call configure_pic
@@ -85,6 +88,23 @@ entry:
 
 	mov ax, 0x2000
 	call set_videocontrol
+
+	mov ax, VIDEO_SEG
+	mov es, ax
+
+	mov si, sprite_demo_start
+	mov di, 0x8000
+.sprite_loop:
+	movsb
+	cmp si, sprite_demo_end
+	jne .sprite_loop
+
+	mov di, 0x9004
+	mov es:[di], word 0
+	mov di, 0x9008
+	mov es:[di], word 0
+	mov ax, RAM_SEG
+	mov es, ax
 
 	mov ax, 0
 	call enable_pf
@@ -176,7 +196,7 @@ do_fake_comms:
 	mov dx, es:[vblank_count]
 	cmp si, fake_comms_end
 	jge .return
-	
+
 .loop:
 	lodsw
 	cmp ax, dx
@@ -286,6 +306,13 @@ vblank_handler:
 
 	call comms_read
 
+	push ds
+	xor ax, ax
+	call RAM_SEG:USER_CODE
+	pop ds
+	cmp al, 0
+	jne .end
+
 	;call do_fake_comms
 
 	in ax, 0x00
@@ -295,11 +322,7 @@ vblank_handler:
 
 	call copy_text_buffer
 
-	mov ax, VIDEO_SEG
-	mov es, ax
-	mov di, 0x9008
-	mov es:[di], word 0
-
+.end:
 	POP_ALL
 	iret
 
@@ -332,6 +355,9 @@ pal_red: dw 0x0000, 14 dup ( 0x1f << 0 ), 0x0000
 pal_green: dw 0x0000, 14 dup ( 0x1f << 5 ), 0x0000
 pal_blue: dw 0x0000, 14 dup ( 0x1f << 10 ), 0x0000
 
+sprite_demo_start:
+incbin "data/obj.bin"
+sprite_demo_end:
 
 ;
 ; RAM accessed via DATA_SEG or ss:

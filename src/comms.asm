@@ -4,7 +4,7 @@
 %include "src/util.asm"
 %include "src/constants.asm"
 
-COMMS_BUFFER_LEN equ 2048
+COMMS_BUFFER_LEN equ 4096
 STROBE equ 0x10
 BLK_START equ 0x20
 BLK_END equ 0x40

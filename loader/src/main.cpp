@@ -19,10 +19,8 @@ constexpr uint8_t pins[] = { 2, 3, 4, 5, 10, 9, 8, 7 };
 void send_bit(int pin, bool v) {
   if( v ) {
     digitalWrite(pin, HIGH);
-    pinMode(pin, OUTPUT);
   } else {
     digitalWrite(pin, LOW);
-    pinMode(pin, OUTPUT);
   }
 }
 
@@ -73,6 +71,15 @@ void send_block(const void *ptr, int len) {
 
 
 void setup() {
+  pinMode(B0, OUTPUT);
+  pinMode(B1, OUTPUT);
+  pinMode(B2, OUTPUT);
+  pinMode(B3, OUTPUT);
+
+  pinMode(STROBE, OUTPUT);
+  pinMode(BLK_END, OUTPUT);
+  pinMode(BLK_START, OUTPUT);
+
   send_bit(B0, false);
   send_bit(B1, false);
   send_bit(B2, false);
@@ -87,27 +94,41 @@ void setup() {
   Serial.setTimeout(5000);
 }
 
-static constexpr uint8_t PREAMBLE[] = {
-  0x00, 0x99, 0x11, 0x22,
-  0x33, 0x44, 0x55, 0x66,
-  0x77, 0x88, 0xFF, 0xAA,
-  0xBB, 0xCC, 0xDD, 0xFF
-};
+static constexpr uint8_t MAGIC[] = { 0xfa, 0x23, 0x68, 0xaf };
 
-uint8_t cmd_buffer[2048];
+uint8_t cmd_buffer[4096];
 
 void loop() {
-  if( Serial.find(PREAMBLE, sizeof(PREAMBLE)) ) {
-    uint16_t length;
-    if( Serial.readBytes((uint8_t *)&length, sizeof(length)) != sizeof(length) ) {
-      return;
-    }
+  int res;
+  uint8_t pkt[48];
+  if( Serial.find(MAGIC, sizeof(MAGIC))) {
+    uint8_t seq, sz;
+    res = Serial.readBytes(&seq, 1);
+    if (res != 1) { Serial.println("0 BADSEQ"); return; };
+    res = Serial.readBytes(&sz, 1);
+    if (res != 1 || sz > 48 || sz < 2) { Serial.print(seq); Serial.println(" BADSZ"); return; };
 
-    if( Serial.readBytes(cmd_buffer, length) == length ) {
-      send_block(cmd_buffer, length);
-      char status[128];
-      sprintf(status, "Sent %d bytes.", length);
-      Serial.println(status);
+    res = Serial.readBytes((uint8_t *)&pkt, sz);
+    if (res != sz) { Serial.print(seq); Serial.println(" SHORT"); return; }
+
+    uint16_t ofs = *(uint16_t *)&pkt[0];
+    if (ofs == 0xffff) {
+      uint16_t len = *(uint16_t *)&pkt[2];
+      send_block(cmd_buffer, len);
+      Serial.print(seq);
+      Serial.println(" SENT");
+    } else if( ofs < sizeof(cmd_buffer)) {
+      if (ofs + sz > sizeof(cmd_buffer)) {
+        Serial.print(seq);
+        Serial.println(" TOOSZ");
+      } else {
+        memcpy(cmd_buffer + ofs, pkt + 2, sz - 2);
+        Serial.print(seq);
+        Serial.println(" ACK");
+      }
+    } else {
+      Serial.print(seq);
+      Serial.println(" NAK");
     }
   }
 }
