@@ -15,6 +15,82 @@ constexpr uint8_t pins[] = { 2, 3, 4, 5, 10, 9, 8, 7 };
 #define STROBE_DELAY delayMicroseconds(200)
 #define BLOCK_DELAY delay(50)
 
+constexpr unsigned short MAN_TIMEOUT = 1000;
+unsigned long man_prev_us = 0;
+bool man_sync = true;
+unsigned short man_clk_us = 0;
+bool man_midpoint = false;
+
+constexpr uint16_t MAN_BUFFER_SZ = 256;
+uint8_t man_buffer[MAN_BUFFER_SZ];
+uint16_t man_buffer_head = 0;
+uint16_t man_buffer_tail = 0;
+uint8_t man_bits = 0;
+uint8_t man_bit_count = 0;
+
+void man_bit(bool b) {
+  man_bits = ( man_bits << 1 ) | ( b ? 1 : 0);
+  man_bit_count++;
+  if (man_bit_count == 8) {
+    man_bit_count = 0;
+    if (man_buffer_head - man_buffer_tail < MAN_BUFFER_SZ) {
+      man_buffer[man_buffer_head % MAN_BUFFER_SZ] = man_bits;
+      man_buffer_head++;
+    }
+    man_bits = 0;
+  }
+}
+
+int man_read() {
+  if( man_buffer_tail == man_buffer_head ) {
+    return -1;
+  }
+
+  int ret = man_buffer[man_buffer_tail % MAN_BUFFER_SZ];
+  man_buffer_tail++;
+
+  return ret;
+}
+
+unsigned short diffs[256];
+uint8_t diff_idx = 0;
+
+void manchester_isr()
+{
+  unsigned long us = micros();
+  unsigned short diff = us - man_prev_us;
+  man_prev_us = us;
+
+  diffs[diff_idx] = diff;
+  diff_idx++;
+
+  if ( diff > MAN_TIMEOUT ) {
+    man_sync = true;
+    man_bits = 0;
+    man_bit_count = 0;
+  } else {
+    if (man_sync) {
+      man_clk_us = diff;
+      man_midpoint = true;
+      man_sync = false;
+    } else {
+      unsigned short half_clk = man_clk_us >> 1;
+      unsigned short high = man_clk_us + half_clk;
+      if (diff < high) { // short pulse
+        if (man_midpoint) { // end transition
+          man_midpoint = false;
+          man_bit(true);
+        } else {
+          man_midpoint = true;
+        }
+        man_clk_us = ( man_clk_us + diff ) >> 1;
+      } else {
+        man_bit(false);
+        man_clk_us = ( man_clk_us + man_clk_us + diff ) >> 2;
+      }
+    }
+  }
+}
 
 void send_bit(int pin, bool v) {
   if( v ) {
@@ -90,8 +166,11 @@ void setup() {
   send_bit(STROBE, true);
 
 
-  Serial.begin(9600);
-  Serial.setTimeout(5000);
+  pinMode(21, INPUT);
+  attachInterrupt(digitalPinToInterrupt(21), manchester_isr, CHANGE);
+
+  Serial.begin(115200);
+  Serial.setTimeout(1000);
 }
 
 static constexpr uint8_t MAGIC[] = { 0xfa, 0x23, 0x68, 0xaf };
@@ -100,8 +179,37 @@ uint8_t cmd_buffer[4096];
 
 void loop() {
   int res;
+/*
+  Serial.print("DEBUG: us: ");
+
+  for( int i = 0; i < 64; i++ )
+  {
+    Serial.print(diffs[i]);
+    Serial.print(" ");
+  }
+  Serial.println();
+
+  Serial.print("DEBUG: BUF: ");
+
+  while( true )
+  {
+    res = man_read();
+    if( res == -1 ) break;
+    Serial.print(res);
+    Serial.print(" ");
+  }
+  Serial.println();
+*/
+
+  /*while( true )
+  {
+    res = man_read();
+    if( res == -1 ) break;
+    Serial.print((char)res);
+  }*/
+
   uint8_t pkt[48];
-  if( Serial.find(MAGIC, sizeof(MAGIC))) {
+  if( Serial.available() > sizeof(MAGIC) && Serial.find(MAGIC, sizeof(MAGIC))) {
     uint8_t seq, sz;
     res = Serial.readBytes(&seq, 1);
     if (res != 1) { Serial.println("0 BADSEQ"); return; };
@@ -114,9 +222,38 @@ void loop() {
     uint16_t ofs = *(uint16_t *)&pkt[0];
     if (ofs == 0xffff) {
       uint16_t len = *(uint16_t *)&pkt[2];
+      uint16_t resp_len = *(uint16_t *)&pkt[4];
+
+      // flush receive buffer
+      if (resp_len) {
+        while( man_read() != -1 ) {};
+      }
+
       send_block(cmd_buffer, len);
       Serial.print(seq);
       Serial.println(" SENT");
+
+      unsigned long start_ms = millis();
+      uint16_t bytes_read = 0;
+      while( ( millis() < (start_ms + 1000) ) && bytes_read < resp_len ) {
+        int resp = man_read();
+        if( resp != -1 ) {
+          Serial.write((uint8_t)resp);
+          bytes_read++;
+        }
+      }
+      /*if (resp_len) {
+        Serial.print("DEBUG: us: ");
+
+        for( int i = 0; i < 64; i++ )
+        {
+          Serial.print(diffs[i]);
+          Serial.print(" ");
+        }
+        Serial.println();
+        Serial.print(seq);
+        Serial.println(" RESP");
+      }*/
     } else if( ofs < sizeof(cmd_buffer)) {
       if (ofs + sz > sizeof(cmd_buffer)) {
         Serial.print(seq);

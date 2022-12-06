@@ -18,6 +18,8 @@ CMD_IN_WORD equ 8
 CMD_CALL equ 9
 CMD_MEMSET equ 10
 CMD_PRINT_AT equ 11
+CMD_READ_BYTES equ 12
+CMD_READ_WORDS equ 13
 
 section .data
 cmd_table:
@@ -33,6 +35,8 @@ cmd_table:
     dw cmd_call
     dw cmd_memset
     dw cmd_print_at
+    dw cmd_read_bytes
+    dw cmd_read_words
 
 section .text
 cmd_none:
@@ -272,6 +276,64 @@ cmd_print_at:
 	POP_NV
 	ret
 
+section .bss
+send_buffer: resb 256
+
+section .text
+cmd_read_bytes:
+	PUSH_NV
+
+	call clear_text
+	mov ax, RAM_SEG
+	mov es, ax
+	mov di, es:[cmd_data_start]
+
+    print_at 4, 8, "READ %x BYTES AT %x:%x", es:[di + 4], es:[di + 0], es:[di + 2]
+ 
+	mov ax, es:[di]
+    mov ds, ax
+	mov si, es:[di + 2]
+    mov ax, es:[di + 4]
+    
+    mov cx, ax
+    mov di, send_buffer
+    rep movsb
+
+    push es
+    push send_buffer
+    push ax
+    call comms_send
+
+	POP_NV
+	ret
+
+cmd_read_words:
+	PUSH_NV
+
+	call clear_text
+	mov ax, RAM_SEG
+	mov es, ax
+	mov di, es:[cmd_data_start]
+
+    print_at 4, 8, "READ %x WORDS AT %x:%x", es:[di + 4], es:[di + 0], es:[di + 2]
+ 
+	mov ax, es:[di]
+    mov ds, ax
+	mov si, es:[di + 2]
+    mov ax, es:[di + 4]
+    
+    mov cx, ax
+    mov di, send_buffer
+    rep movsw
+
+    push es
+    push send_buffer
+    shl ax, 1
+    push ax
+    call comms_send
+
+	POP_NV
+	ret
 
 
 

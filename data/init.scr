@@ -1,0 +1,4 @@
+memset 0xf8000 0xe0 0x1000
+loadw 0xf8000 data/obj.bin
+loadw 0xf8800 data/rtl-pal-small.bin
+writew 0xf9008 0

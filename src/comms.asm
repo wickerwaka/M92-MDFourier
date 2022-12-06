@@ -20,6 +20,8 @@ active_cmd: resb 1
 cmd_data_start: resw 1
 cmd_data_end: resw 1
 
+port_value: resb 1
+
 section .text
 comms_read:
     in ax, 0x06
@@ -145,5 +147,74 @@ comms_next_cmd:
     POP_NV
 
     ret
+
+; clobbers di
+%macro delay 1
+    mov di, %1
+%%delay:
+    dec di
+    jnz %%delay 
+%endmacro
+
+; clobbers ax
+%macro cond_transition 0
+    lahf
+    shr ax, 5
+    and al, 0x08
+    xor al, [port_value]
+    out 0x02, al
+    mov [port_value], al
+%endmacro
+
+%macro transition 0
+    stc
+    cond_transition
+%endmacro
+
+comms_send:
+    push bp
+    mov bp, sp
+    PUSH_NV
+
+    mov ds, [bp + 8] ; segment
+	mov si, [bp + 6] ; start
+    mov dx, [bp + 4] ; end
+
+    cli
+
+    transition
+.byte_loop:
+    ; load byte
+    mov bl, [si]
+    inc si
+
+    mov cx, 8
+.bit_loop:
+
+    delay 50
+    
+    transition
+
+    delay 50
+
+    shl bl, 1
+    cond_transition
+
+    loop .bit_loop
+
+    dec dx
+    jnz .byte_loop
+
+; final toggle
+    delay 50
+    transition
+
+.done:
+
+    sti
+
+    POP_NV
+    pop bp
+    ret 6
 
 %endif ; COMMS_ASM

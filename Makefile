@@ -63,4 +63,14 @@ flash_high: $(GAME_DIR)/rtl-h0-c.bin
 original:
 	$(MAME) -debug -rompath $(ORIGINAL_DIR) $(GAME)
 
+majtitle:
+	$(MAME) -debug -rompath $(ORIGINAL_DIR) majtitl2
+
+baseball:
+	$(MAME) -debug -rompath $(ORIGINAL_DIR) nbbatman
+
+gf2:
+	$(MAME) -debug -rompath $(ORIGINAL_DIR) gunforc2
+
+
 -include $(BUILD_DIR)/main.dep
