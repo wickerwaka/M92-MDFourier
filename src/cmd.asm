@@ -20,6 +20,7 @@ CMD_MEMSET equ 10
 CMD_PRINT_AT equ 11
 CMD_READ_BYTES equ 12
 CMD_READ_WORDS equ 13
+CMD_MEMSET_WORDS equ 14
 
 section .data
 cmd_table:
@@ -37,6 +38,7 @@ cmd_table:
     dw cmd_print_at
     dw cmd_read_bytes
     dw cmd_read_words
+    dw cmd_memsetw
 
 section .text
 cmd_none:
@@ -247,6 +249,26 @@ cmd_memset:
 	mov cx, [si + 4]
     mov al, [si + 6]
 	rep stosb
+
+	POP_NV
+	ret
+
+cmd_memsetw:
+	PUSH_NV
+
+	call clear_text
+
+	mov ax, RAM_SEG
+	mov ds, ax
+	mov si, ds:[cmd_data_start]
+
+	print_at 4, 8, "MEMSET %x WORDS AT %x:%x", [si + 4], [si + 0], [si + 2]
+
+	mov es, [si + 0]
+	mov di, [si + 2]
+	mov cx, [si + 4]
+    mov ax, [si + 6]
+	rep stosw
 
 	POP_NV
 	ret

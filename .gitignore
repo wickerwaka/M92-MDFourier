@@ -1,3 +1,8 @@
 build/
 cfg/
 original/rtypeleo/
+captures/
+original/*.zip
+nvram/
+comment/
+.DS_Store

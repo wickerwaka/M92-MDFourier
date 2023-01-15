@@ -8,6 +8,8 @@ import readline
 import os
 import time
 import random
+import tempfile
+import subprocess
 
 class CommandException(Exception):
     pass
@@ -53,10 +55,10 @@ def read_words(addr, count):
     return cmd(13, "<HHH", segment(addr), offset(addr), count)
 
 def out_byte(port, byte):
-    return cmd(5, "<HB", port, byte)
+    return cmd(5, "<HB", port, byte & 0xff)
 
 def out_word(port, word):
-    return cmd(6, "<HH", port, word)
+    return cmd(6, "<HH", port, word & 0xffff)
 
 def in_byte(port):
     return cmd(7, "<H", port)
@@ -67,8 +69,11 @@ def in_word(port):
 def far_call(addr):
     return cmd(9, "<HH", offset(addr), segment(addr))
 
-def memset(addr, fill, count):
+def memsetb(addr, fill, count):
     return cmd(10, "<HHHB", segment(addr), offset(addr), count, fill)
+
+def memsetw(addr, fill, count):
+    return cmd(14, "<HHHH", segment(addr), offset(addr), count, fill)
 
 def print_at(x, y, s, clear=False):
     str_bytes = s.upper().encode() + b'\x00'
@@ -95,8 +100,8 @@ def exec_script(filename):
     return cmds
 
 def print_hex(addr, data, sz):
-    for ofs in range(0, len(data), 16):
-        end = min(len(data), ofs + 16)
+    for ofs in range(0, len(data), 8):
+        end = min(len(data), ofs + 8)
         b = data[ofs:end]
         ints = []
         for x in range(0,len(b),sz):
@@ -153,8 +158,10 @@ def process_line(line):
             return [ in_word(args[0]) ]
         elif name == "call":
             return [ far_call(args[0]) ]
-        elif name == "memset":
-            return [ memset(args[0], args[1], args[2]) ]
+        elif name == "memsetb":
+            return [ memsetb(args[0], args[1], args[2]) ]
+        elif name == "memsetw":
+            return [ memsetw(args[0], args[1], args[2]) ]
         elif name == "loadb":
             return [ load_file_bytes(int(args[0], 0), args[1]) ]
         elif name == "loadw":
@@ -167,6 +174,7 @@ def process_line(line):
         elif name == "readw":
             count = min(args[1], 128)
             return [ CmdWithResponse( read_words(args[0], count), count * 2, lambda x: print_words(args[0], x) ) ]
+
 
 
         else:
@@ -221,7 +229,158 @@ def send_data(ser, data, resp_len = 0):
         # expect_resp(ser, seq, "RESP")
         return resp
     else:
+        send_mister_data(data)
         return None
+
+STROBE = 0x10
+BLK_START = 0x20
+BLK_END = 0x40
+
+def send_mister_data(data):
+    enc = []
+
+    enc.append(BLK_START)
+    enc.append(0)
+
+    for b in data:
+        enc.append(STROBE | (b & 0x0f))
+        enc.append(0)
+        enc.append(STROBE | (b >> 4))
+        enc.append(0)
+
+    enc.append(BLK_END)
+    enc.append(0)
+
+    out = b''.join( ((x ^ 0xf0) & 0xff).to_bytes(1, 'little') for x in enc )
+    
+    subprocess.run(["ssh", "root@mister-dev", "cat > /dev/MiSTer_dbg"], input=out)
+
+class FillWord:
+    def __init__(self, value):
+        self.value = value
+
+class FillByte:
+    def __init__(self, value):
+        self.value = value
+
+
+class MemoryByteView:
+    def __init__(self, ser):
+        self.ser = ser
+    
+    def __len__(self):
+        return 0x100000
+    
+    def __getitem__(self, key):
+        if type(key) == int:
+            if key < 0 or key >= 0x100000:
+                raise IndexError()
+            resp = send_data(self.ser, read_words(key, 1), 2)
+            return int.from_bytes(resp, 'little')
+        elif type(key) == slice:
+            full_data = b''
+            for start in range(key.start, key.stop, 256):
+                end = min(start+256, key.stop)
+                sz = end - start
+                if ( start & 1 ) == 0 and ( sz & 1 ) == 0:
+                    cmd = read_words(start, int(sz / 2))
+                else:
+                    cmd = read_bytes(start, sz)
+                full_data += send_data(self.ser, cmd, sz)
+            
+            return full_data[::key.step]
+        else:
+            raise TypeError()
+
+    def __setitem__(self, key, value):
+        if type(key) == int:
+            if key < 0 or key >= 0x100000:
+                raise IndexError()
+            send_data(self.ser, write_words(key, value.to_bytes(2, 'little')))
+        elif type(key) == slice:
+            if type(value) == FillWord:
+                send_data(self.ser, memsetw(key.start, value.value, int((key.stop - key.start) / 2)))
+            elif type(value) == FillByte:
+                send_data(self.ser, memsetb(key.start, value.value, key.stop - key.start))
+            else:
+                for start in range(0, len(value), 1024):
+                    end = min(start+1024, len(value))
+                    sz = end - start
+                    if ( key.start & 1 ) == 0 and ( sz & 1 ) == 0:
+                        send_data(self.ser, write_words(key.start + start, value[start:end]))
+                    else:
+                        send_data(self.ser, write_bytes(key.start + start, value[start:end]))
+        else:
+            raise TypeError()
+
+class MemoryWordView:
+    def __init__(self, ser):
+        self.ser = ser
+    
+    def __len__(self):
+        return 0x100000
+    
+    def __getitem__(self, key):
+        if type(key) == int:
+            if key < 0 or key >= 0x100000:
+                raise IndexError()
+            data = send_data(self.ser, read_words(key, 1), 2)
+            return int.from_bytes(data[0:2], 'little')
+        else:
+            raise TypeError()
+
+    def __setitem__(self, key, value):
+        if type(key) == int:
+            if key < 0 or key >= 0x100000:
+                raise IndexError()
+            send_data(self.ser, write_words(key, value.to_bytes(2, 'little')))
+        else:
+            raise TypeError()
+
+class AssemblyException(Exception):
+    pass
+
+class Code:
+    def __init__(self, org: int, code: str):
+        self.org = org
+        self.code = code
+        self.assembled = self.assemble()
+    
+    def assemble(self):
+        # Run Nasm
+        fd, source = tempfile.mkstemp(".S", "assembly", os.getcwd())
+        os.write(fd, f"CPU 186\nBITS 16\n\nORG 0x{self.org:x}\n".encode("utf-8"))
+        os.write(fd, self.code.encode("utf-8"))
+        os.close(fd)
+        target = os.path.splitext(source)[0]
+        try:
+            subprocess.check_output(["nasm", "-f", "bin", "-o", target, source], stderr=subprocess.STDOUT )
+        except subprocess.CalledProcessError as e:
+            lines = e.output.decode('utf-8').split('\n')
+            errors = ''
+            for line in lines:
+                parts = line.split(':', 2)
+                if len(parts) == 3:
+                    errors += f"\n{int(parts[1]) - 3}: {parts[2].strip()}"
+            raise AssemblyException(errors)
+
+        os.unlink(source)
+        assembled = open(target,"rb").read()
+        os.unlink(target)
+        return assembled
+
+
+class M92:
+    def __init__(self, device_path=None):
+        self.conn = find_port(device_path)
+        time.sleep(0.1) 
+        self.mem = MemoryByteView(self.conn)
+        self.memw = MemoryWordView(self.conn)
+    
+    def execute(self, code: Code):
+        self.memb[code.org:] = code.assembled
+        send_data(self.conn, far_call(code.org))
+
 
 def find_port(device_path=None):
     if device_path:
@@ -232,9 +391,10 @@ def find_port(device_path=None):
     if len(ports) > 0:
         port = ports[0].device
         print(f"Using {port}")
-        return serial.Serial(port, timeout=5, baudrate=115200)
+        return serial.Serial(port, timeout=5, baudrate=115200, dsrdtr=True)
     
     raise Exception("Could not find a serial port")
+
 
 def interactive(device_path=None):
     ser = find_port(device_path)
@@ -277,6 +437,7 @@ def interactive(device_path=None):
 
 
 if __name__ == '__main__':
+    send_mister_data(b'')
     if len(sys.argv) == 1:
         interactive()
 

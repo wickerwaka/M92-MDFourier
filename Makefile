@@ -6,6 +6,7 @@ BUILD_DIR = build
 ORIGINAL_DIR = original
 SRC_DIR = src
 GAME = rtypeleo
+MISTER_HOSTNAME=mister-dev
 
 ORIGINAL_BINS = rtl-sh0a.bin rtl-sl0a.bin \
        	rtl-c0.bin rtl-c1.bin rtl-c2.bin rtl-c3.bin \
@@ -21,6 +22,8 @@ BUILT_BINS = $(addprefix $(GAME_DIR)/, rtl-h0-c.bin rtl-l0-c.bin)
 
 all: $(COPIED_BINS) $(BUILT_BINS)
 
+mister: $(GAME_DIR)/m92test.zip
+	scp $< root@$(MISTER_HOSTNAME):/media/fat/games/mame/
 
 $(COPIED_BINS): $(GAME_DIR)/%.bin: $(ORIGINAL_DIR)/$(GAME)/%.bin | $(GAME_DIR)
 	cp $< $@
@@ -33,6 +36,9 @@ $(GAME_DIR)/rtl-h0-c.bin: $(BUILD_DIR)/main.rom
 
 $(GAME_DIR)/rtl-l0-c.bin: $(BUILD_DIR)/main.rom
 	$(SPLIT_ROM) $@ $< 0x00000 0x80000
+
+$(GAME_DIR)/m92test.zip: $(BUILD_DIR)/main.rom
+	zip -j - $< > $@
 
 #$(GAME_DIR)/rtl-h1-d.bin: $(BUILD_DIR)/main.rom#
 #	$(SPLIT_ROM) $@ $< 0x80001 0x40000
@@ -71,6 +77,9 @@ baseball:
 
 gf2:
 	$(MAME) -debug -rompath $(ORIGINAL_DIR) gunforc2
+
+ssoldier:
+	$(MAME) -debug -rompath $(ORIGINAL_DIR) ssoldier
 
 
 -include $(BUILD_DIR)/main.dep
