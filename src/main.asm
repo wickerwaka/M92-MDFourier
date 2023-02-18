@@ -146,6 +146,9 @@ main_process:
 .main_loop:
 	call wait_vblank
 
+	mov al, 0x7b
+	out 0x00, al
+
 	cli
 	call comms_next_cmd ; al contains cmd
 	sti
@@ -336,6 +339,9 @@ dma_done_handler:
 
 align 4
 unknown_handler:
+	push ax
+	in al, 0x08
+	pop ax
 	iret
 
 align 4

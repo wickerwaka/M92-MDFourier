@@ -1,6 +1,6 @@
 build/
 cfg/
-original/rtypeleo/
+original/*/
 captures/
 original/*.zip
 nvram/
