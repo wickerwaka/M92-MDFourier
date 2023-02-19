@@ -91,6 +91,14 @@ flash_low: $(GAME_DIR)/$(MAIN_LOW_BIN)
 flash_high: $(GAME_DIR)/$(MAIN_HIGH_BIN)
 	minipro -p W27C020 -w $<
 
+flash_audio_low: $(GAME_DIR)/$(AUDIO_LOW_BIN)
+	cat $< $< $< $< > $<.4x
+	minipro -p W27C020 -w $<.4x
+
+flash_audio_high: $(GAME_DIR)/$(AUDIO_HIGH_BIN)
+	cat $< $< $< $< > $<.4x
+	minipro -p W27C020 -w $<.4x
+
 original:
 	mkdir mame
 	cd mame

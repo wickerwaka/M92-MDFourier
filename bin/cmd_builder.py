@@ -75,6 +75,12 @@ def memsetb(addr, fill, count):
 def memsetw(addr, fill, count):
     return cmd(14, "<HHHH", segment(addr), offset(addr), count, fill)
 
+def write_audio(addr, data):
+    return cmd(15, "<H", addr & 0x00ff, data=data)
+
+def read_audio(addr, count):
+    return cmd(16, "<HH", addr & 0x00ff, count)
+
 def print_at(x, y, s, clear=False):
     str_bytes = s.upper().encode() + b'\x00'
     return cmd(11, "<?BB", clear, x, y, data=str_bytes)
@@ -162,6 +168,11 @@ def process_line(line):
             return [ memsetb(args[0], args[1], args[2]) ]
         elif name == "memsetw":
             return [ memsetw(args[0], args[1], args[2]) ]
+        elif name == "writea":
+            return [ write_audio(args[0], b''.join([x.to_bytes(1, byteorder='little') for x in args[1:]])) ]
+        elif name == "reada":
+            count = min(args[1], 256)
+            return [ CmdWithResponse( read_audio(args[0], count), count, lambda x: print_bytes(args[0], x) ) ]
         elif name == "loadb":
             return [ load_file_bytes(int(args[0], 0), args[1]) ]
         elif name == "loadw":

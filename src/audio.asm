@@ -47,13 +47,42 @@ entry:
 	mov ax, 0xa000
 	mov ss, ax
 	mov ds, ax
-	mov sp, 0xf00
+	mov sp, stack_start
 
 	call config_system
+	mov byte [cmd_write_pos], 0
 	sti
 
-.loop:
-	jmp .loop
+.cmd_wait:
+	cmp byte [cmd_write_pos], 3
+	jl .cmd_wait
+
+	cli
+
+	mov al, [cmd_buf] ; cmd
+
+	mov bh, 0x80
+	mov bl, [cmd_buf + 1] ; addr
+	
+	mov dl, [cmd_buf + 2] ; value
+	
+	cmp al, 0
+	je .read
+
+.write:
+	mov [bx], dl
+	jmp .finish
+
+.read:
+	mov dl, [bx]
+
+.finish:
+	mov [0x8046], dl ; write response
+
+	mov byte [cmd_write_pos], 0
+	sti
+	
+	jmp .cmd_wait
 
 
 
@@ -93,9 +122,15 @@ p0_handler:
 align 4
 p1_handler:
 	push ax
+	push bx
+	xor bh, bh
+	mov bl, ss:[cmd_write_pos]
 	mov al, ss:[0x8044]
-	mov ss:[0x8046], al
+	mov ss:[cmd_buf + bx], al
+	inc bl
+	mov ss:[cmd_write_pos], bl
 	mov ss:[0x8044], al
+	pop bx
 	pop ax
 	db 0x0f, 0x92 ; FINI
 	iret
@@ -109,6 +144,14 @@ generic_handler:
 ; RAM accessed via DATA_SEG or ss:
 ;
 section .bss
+alignb 2
+cmd_buf: resb 256
+cmd_write_pos: resb 1
+
+
+stack: resb 256
+stack_start:
+
 
 ;
 ; V35 STARTUP

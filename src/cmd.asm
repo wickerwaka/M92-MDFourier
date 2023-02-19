@@ -5,6 +5,7 @@
 %include "src/constants.asm"
 %include "src/text.asm"
 %include "src/comms.asm"
+%include "src/audio_io.asm"
 
 CMD_NONE equ 0
 CMD_SHOW_MEMORY_BYTE equ 1
@@ -21,6 +22,8 @@ CMD_PRINT_AT equ 11
 CMD_READ_BYTES equ 12
 CMD_READ_WORDS equ 13
 CMD_MEMSET_WORDS equ 14
+CMD_WRITE_AUDIO equ 15
+CMD_READ_AUDIO equ 16
 
 section .data
 cmd_table:
@@ -39,6 +42,8 @@ cmd_table:
     dw cmd_read_bytes
     dw cmd_read_words
     dw cmd_memsetw
+	dw cmd_write_audio
+	dw cmd_read_audio
 
 section .text
 cmd_none:
@@ -357,6 +362,67 @@ cmd_read_words:
 	POP_NV
 	ret
 
+cmd_write_audio:
+	PUSH_NV
 
+	call clear_text
+
+	mov ax, RAM_SEG
+	mov ds, ax
+	mov si, ds:[cmd_data_start]
+    mov bx, ds:[cmd_data_end]
+    sub bx, si
+    sub bx, 2
+
+	print_at 4, 8, "WRITE %x AUDIO BYTES TO a80%l", bx, [si + 0]
+
+	mov al, [si + 0]
+	add si, 2
+	mov cx, bx
+
+.copy_loop:
+	mov ah, [si]
+	inc si
+	push ax
+	call write_audio
+	pop ax
+	add al, 2
+	loop .copy_loop
+
+	POP_NV
+	ret
+
+
+cmd_read_audio:
+	PUSH_NV
+
+	call clear_text
+	mov ax, RAM_SEG
+	mov es, ax
+	mov di, es:[cmd_data_start]
+
+    print_at 4, 8, "READ %x AUDIO BYTES AT a80%l", es:[di + 2], es:[di + 0]
+ 
+	mov bx, es:[di + 0]
+	mov dx, es:[di + 2]
+    
+    mov cx, dx
+    mov di, send_buffer
+	xor ah, ah
+
+.read_loop:
+	mov al, bl
+	add bl, 2
+	call read_audio
+	stosb
+	loop .read_loop
+    
+    push es
+    push send_buffer
+    push dx
+    call comms_send
+
+	POP_NV
+	ret
 
 %endif ; CMD_ASM

@@ -26,7 +26,7 @@ section .text
 	dd vblank_handler
 	dd dma_done_handler
 	dd hint_handler
-	dd unknown_handler
+	dd audio_io_handler
 	dd generic_handler
 	dd generic_handler
 	dd generic_handler
@@ -44,6 +44,7 @@ section .text
 %include "src/text.asm"
 %include "src/comms.asm"
 %include "src/cmd.asm"
+%include "src/audio_io.asm"
 
 ;
 ; MAIN ENTRYPOINT
@@ -91,16 +92,6 @@ entry:
 
 	mov ax, VIDEO_SEG
 	mov es, ax
-
-	mov si, sprite_demo_start
-	mov di, 0x8000
-.sprite_loop:
-	movsb
-	cmp si, sprite_demo_end
-	jne .sprite_loop
-
-	mov di, 0x9004
-	mov es:[di], word 0
 	mov di, 0x9008
 	mov es:[di], word 0
 	mov ax, RAM_SEG
@@ -146,8 +137,26 @@ main_process:
 .main_loop:
 	call wait_vblank
 
-	mov al, 0x7b
-	out 0x00, al
+
+;	mov ax, 0x0000   ; start_lo;
+;	call write_audio
+;	mov ax, 0x0102   ; start_hi
+;	call write_audio
+;	mov ax, 0x0004   ; end_lo
+;	call write_audio
+;	mov ax, 0xff06   ; end_hi
+;	call write_audio
+;	mov ax, 0x8008   ; rate
+;	call write_audio
+;	mov ax, 0xff0a   ; volume  
+;	call write_audio
+;	mov ax, 0x020c   ; ctrl
+;	call write_audio
+
+;	mov cx, 0x0200
+;.wait_long:
+;	call wait_vblank
+;	loop .wait_long
 
 	cli
 	call comms_next_cmd ; al contains cmd
@@ -171,18 +180,21 @@ main_process:
 section .data
 alignb 2
 fake_comms:
-	;dw 0x0100, fake_comms_1_begin, fake_comms_1_end
-	;dw 0x0200, fake_comms_2_begin, fake_comms_2_end
+	dw 0x0100, fake_comms_1_begin, fake_comms_1_end
+	dw 0x0200, fake_comms_2_begin, fake_comms_2_end
 fake_comms_end:
 
 fake_comms_1_begin:
-	db CMD_WRITE_BYTES
-	dw 0x0008, RAM_SEG, 0x8000, 0xcbcb, 0xcbcb 
+	db CMD_WRITE_AUDIO
+	dw 0x0009, 0x0000
+	db 0x00, 0x01, 0x00, 0xff, 0x20, 0xff, 0x02
+
 fake_comms_1_end:
 
 fake_comms_2_begin:
-	db CMD_CALL
-	dw 0x0004, 0x8000, RAM_SEG
+	db CMD_WRITE_AUDIO
+	dw 0x0009, 0x0000
+	db 0x00, 0x04, 0x00, 0xff, 0x20, 0xff, 0x02
 fake_comms_2_end:
 
 section .text
@@ -197,10 +209,11 @@ do_fake_comms:
 	mov si, fake_comms
 
 	mov dx, es:[vblank_count]
+
+.loop:
 	cmp si, fake_comms_end
 	jge .return
 
-.loop:
 	lodsw
 	cmp ax, dx
 	je .load_fake
@@ -300,6 +313,7 @@ set_pf_xy:
 	pop bx
 	ret
 
+	
 align 4
 vblank_handler:
 	PUSH_ALL
@@ -338,13 +352,6 @@ dma_done_handler:
 	iret
 
 align 4
-unknown_handler:
-	push ax
-	in al, 0x08
-	pop ax
-	iret
-
-align 4
 generic_handler:
 	iret
 
@@ -373,7 +380,6 @@ section .bss
 	vblank_count: resw 1
 	p1_p2: resw 1
 	p3_p4: resw 1
-
 ;
 ; M92 STARTUP
 ;
