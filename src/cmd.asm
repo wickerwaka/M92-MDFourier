@@ -374,7 +374,7 @@ cmd_write_audio:
     sub bx, si
     sub bx, 2
 
-	print_at 4, 8, "WRITE %x AUDIO BYTES TO a80%l", bx, [si + 0]
+	print_at 4, 8, "WRITE %x AUDIO BYTES TO A80%l", bx, [si + 0]
 
 	mov al, [si + 0]
 	add si, 2
@@ -401,7 +401,7 @@ cmd_read_audio:
 	mov es, ax
 	mov di, es:[cmd_data_start]
 
-    print_at 4, 8, "READ %x AUDIO BYTES AT a80%l", es:[di + 2], es:[di + 0]
+    print_at 4, 8, "READ %x AUDIO BYTES AT A80%l", es:[di + 2], es:[di + 0]
  
 	mov bx, es:[di + 0]
 	mov dx, es:[di + 2]
