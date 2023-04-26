@@ -22,7 +22,8 @@ class OBJ:
 
     @staticmethod
     def from_bytes(bytes):
-        a, b, c, d = struct.unpack("<HHHH", bytes)
+        #a, b, c, d = struct.unpack("<HHHH", bytes)
+        d, c, b, a = struct.unpack(">HHHH", bytes)
         y = a & 0x1ff
         x = d & 0x1ff
         cols = 1 << ( ( a >> 11 ) & 3 )
@@ -53,6 +54,9 @@ class OBJ:
 
     def __str__(self):
         return f"X:{self.x} Y:{self.y} Cols:{self.cols} Rows:{self.rows} Code:{self.code} Layer:{self.layer} Color:{self.color} Prio:{self.prio} FlipX:{self.flip_x} FlipY:{self.flip_y}"
+
+    def to_csv(self):
+        return f"{self.x},{self.y},{self.cols},{self.rows},{self.code},{self.layer},{self.color},{self.prio},{self.flip_x},{self.flip_y}"
 
 """
 class CopySim:
@@ -94,50 +98,59 @@ def layer_test(x = 160):
         x = x - 16
 
     for num in range(0, 8):
-        obj = OBJ(x, 260, num_codes[num], num, color = 2, prio = True)
+        obj = OBJ(x, 260, num_codes[num], num, color = 2, cols=2)
         obj_data = obj_data + obj.to_bytes()
         x = x + 16
 
 
     return obj_data
 
+if __name__ == '__main__':
 
-m92 = M92()
+    m92 = M92()
 
-# load palette
-#m92.mem[0xf8800:] = open('data/rtl-pal-small.bin', 'rb').read()
-# clear sprite memory
-#m92.mem[0xf8000:] = bytearray(0x800)
+    # load palette
+    # m92.mem[0xf8800:] = open('data/rtl-pal-small.bin', 'rb').read()
+    # clear sprite memory
+    # m92.mem[0xf8000:0xf8800] = FillWord(0)
 
-# setup sprite copy mode
-m92.mem[0xf9000] = 0xff80
-m92.mem[0xf9002] = 0
-m92.mem[0xf9004] = 0x001
+    # setup sprite copy mode
+    m92.mem[0xf9000] = 0xffe0
+    m92.mem[0xf9002] = 0
+    m92.mem[0xf9004] = 0x0011
 
-objs = []
-for ofs in range(0, 64, 64):
-    obj = OBJ(104 + ofs, 144 + ofs, 8 + ofs, 0, cols=1, rows=1)
-    objs.append(obj)
+    objs = []
+    for ofs in range(0, 128, 8):
+        obj = OBJ(104 + ofs, 250, 8 + ofs, 0, cols=1, rows=1)
+        objs.append(obj)
 
-data_to_send = b''.join( x.to_bytes() for x in objs)
-# load sprite data
-m92.mem[0xf8000:0xf8800] = FillWord(0)
-m92.mem[0xf8000:] = data_to_send
+    data_to_send = b''.join( x.to_bytes() for x in objs)
+    # load sprite data
+    m92.mem[0xf8000:0xf8800] = FillWord(0xe000)
+    m92.mem[0xf8000:] = layer_test()
 
-# initiate dma
-m92.mem[0xf9008] = 0
+    # initiate dma
+    m92.mem[0xf9008] = 0
 
-"""
-print( "Buffer" )
-cmd_builder.print_words(0, m92.mem[0xf8000:0xf8040])
+    m92.mem[0xf9002] = 1
 
-m92.mem[0xf9002] = 1
+    print( "OBJ" )
+    cmd_builder.print_words(0, m92.mem[0xf8000:0xf8100])
 
-print( "OBJ" )
-cmd_builder.print_words(0, m92.mem[0xf8000:0xf8040])
+    m92.mem[0xf9002] = 0
 
-m92.mem[0xf9002] = 0
-"""
+
+    """
+    print( "Buffer" )
+    cmd_builder.print_words(0, m92.mem[0xf8000:0xf8040])
+
+    m92.mem[0xf9002] = 1
+
+    print( "OBJ" )
+    cmd_builder.print_words(0, m92.mem[0xf8000:0xf8040])
+
+    m92.mem[0xf9002] = 0
+    """
 
 
 

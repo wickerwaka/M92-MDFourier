@@ -1,0 +1,99 @@
+<misterromdescription>
+    <name>M92 Testbed</name>
+    <mameversion>0245</mameversion>
+    <setname>m92testbed</setname>
+    <year>1992</year>
+    <manufacturer>Irem</manufacturer>
+    <category>Shooter</category>
+    <rbf>IremM92</rbf>
+    <rotation>horizontal</rotation>
+
+    <players>2</players>
+    <joystick>8-way</joystick>
+    <num_buttons>2</num_buttons>
+    <buttons default="B,A,R,L" names="Fire,Pod Control,-,-,Start,Coin,P2 Start,Pause"></buttons>
+    <switches default="00 00 00">
+        <dip bits="0" ids="Off,On" name="Sw1:1"></dip>
+        <dip bits="1" ids="Off,On" name="Sw1:2"></dip>
+        <dip bits="2" ids="Off,On" name="Sw1:3"></dip>
+        <dip bits="3" ids="Off,On" name="Sw1:4"></dip>
+        <dip bits="4" ids="Off,On" name="Sw1:5"></dip>
+        <dip bits="5" ids="Off,On" name="Sw1:6"></dip>
+        <dip bits="6" ids="Off,On" name="Sw1:7"></dip>
+        <dip bits="7" ids="Off,On" name="Sw1:8"></dip>
+
+        <dip bits="8" ids="Off,On" name="Sw2:1"></dip>
+        <dip bits="9" ids="Off,On" name="Sw2:2"></dip>
+        <dip bits="10" ids="Off,On" name="Sw2:3"></dip>
+        <dip bits="11" ids="Off,On" name="Sw2:4"></dip>
+        <dip bits="12" ids="Off,On" name="Sw2:5"></dip>
+        <dip bits="13" ids="Off,On" name="Sw2:6"></dip>
+        <dip bits="14" ids="Off,On" name="Sw2:7"></dip>
+        <dip bits="15" ids="Off,On" name="Sw2:8"></dip>
+
+        <dip bits="16" ids="Off,On" name="Sw3:1"></dip>
+        <dip bits="17" ids="Off,On" name="Sw3:2"></dip>
+        <dip bits="18" ids="Off,On" name="Sw3:3"></dip>
+        <dip bits="19" ids="Off,On" name="Sw3:4"></dip>
+        <dip bits="20" ids="Off,On" name="Sw3:5"></dip>
+        <dip bits="21" ids="Off,On" name="Sw3:6"></dip>
+        <dip bits="22" ids="Off,On" name="Sw3:7"></dip>
+        <dip bits="23" ids="Off,On" name="Sw3:8"></dip>
+    </switches>
+
+    <rom index="0" zip="m92test.zip|rtypeleo.zip" md5="None">
+        <!-- board type -->
+        <part>00</part>
+
+        <!-- maincpu -->
+        <part>00 08 00 00</part>
+        <part name="main.rom" />
+
+        <!-- gfx1 tiles -->
+        <part>01 20 00 00</part>
+        <interleave output="32">
+            <part name="rtl-c0.bin"  crc="fb588d7c" map="0001" />
+            <part name="rtl-c1.bin"  crc="e5541bff" map="0010" />
+            <part name="rtl-c2.bin"  crc="faa9ae27" map="0100" />
+            <part name="rtl-c3.bin"  crc="3a2343f6" map="1000" />
+        </interleave>
+
+        <!-- gfx2 sprites -->
+        <part>02 40 00 00</part>
+        <interleave output="32">
+            <part name="rtl-000.bin" crc="82a06870" map="0001" />
+            <part name="rtl-010.bin" crc="417e7a56" map="0010" />
+            <part name="rtl-020.bin" crc="f9a3f3a1" map="0100" />
+            <part name="rtl-030.bin" crc="03528d95" map="1000" />
+        </interleave>
+
+        <!-- soundcpu -->
+        <part>03 02 00 00</part>
+        <part name="audio.rom" />
+
+        <!-- soundcpu key -->
+        <part>04 00 01 00</part>
+        <part>
+            00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 
+            10 11 12 13 14 15 16 17 18 19 1a 1b 1c 1d 1e 1f 
+            20 21 22 23 24 25 26 27 28 29 2a 2b 2c 2d 2e 2f 
+            30 31 32 33 34 35 36 37 38 39 3a 3b 3c 3d 3e 3f 
+            40 41 42 43 44 45 46 47 48 49 4a 4b 4c 4d 4e 4f 
+            50 51 52 53 54 55 56 57 58 59 5a 5b 5c 5d 5e 5f 
+            60 61 62 63 64 65 66 67 68 69 6a 6b 6c 6d 6e 6f 
+            70 71 72 73 74 75 76 77 78 79 7a 7b 7c 7d 7e 7f 
+            80 81 82 83 84 85 86 87 88 89 8a 8b 8c 8d 8e 8f 
+            90 91 92 93 94 95 96 97 98 99 9a 9b 9c 9d 9e 9f 
+            a0 a1 a2 a3 a4 a5 a6 a7 a8 a9 aa ab ac ad ae af 
+            b0 b1 b2 b3 b4 b5 b6 b7 b8 b9 ba bb bc bd be bf 
+            c0 c1 c2 c3 c4 c5 c6 c7 c8 c9 ca cb cc cd ce cf 
+            d0 d1 d2 d3 d4 d5 d6 d7 d8 d9 da db dc dd de df 
+            e0 e1 e2 e3 e4 e5 e6 e7 e8 e9 ea eb ec ed ee ef 
+            f0 f1 f2 f3 f4 f5 f6 f7 f8 f9 fa fb fc fd fe ff 
+        </part>
+
+        <!-- iremg20 -->
+        <part>05 04 00 00</part>
+        <part name="mdfourier-dac-16000.bin" />
+    </rom>
+</misterromdescription>

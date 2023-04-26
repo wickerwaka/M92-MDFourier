@@ -10,6 +10,7 @@ import time
 import random
 import tempfile
 import subprocess
+import paramiko
 
 class CommandException(Exception):
     pass
@@ -197,74 +198,96 @@ def process_line(line):
 
     return []
 
+
 MAGIC = [ 0xfa, 0x23, 0x68, 0xaf ]
-
-def expect_resp(ser, seq, expected):
-    while True:
-        resp = ser.read_until().decode('utf-8', errors='replace').strip()
-        if not resp.startswith("DEBUG:"):
-            break
-        print(resp)
-    
-    sequence_str, _, status = resp.partition(' ')
-    
-    try:
-        sequence = int(sequence_str)
-    except ValueError:
-        raise CommsException(f"Unrecognized sequence number: {resp}")
-    
-    if sequence != seq:
-        raise CommsException(f"Unexpected sequence number: {sequence} != {seq} '{resp}'")
-    
-    if status != expected:
-        raise CommandException(f"Unexpected status: {status} != {expected} '{resp}'")
-
-    
-
-def send_data(ser, data, resp_len = 0):
-    seq = random.randint(0, 127)
-    for ofs in range(0, len(data), 32):
-        end = min(len(data), ofs+32)
-        chunk = data[ofs:end]
-        pkt = struct.pack("<BBBBBBH", MAGIC[0], MAGIC[1], MAGIC[2], MAGIC[3], seq & 0x7f, len(chunk) + 2, ofs & 0xffff) + chunk
-        ser.write(pkt)
-        expect_resp(ser, seq, "ACK")
-        seq = ( seq + 1 ) & 0x7f
-    
-    pkt = struct.pack("<BBBBBBHHH", MAGIC[0], MAGIC[1], MAGIC[2], MAGIC[3], seq & 0x7f, 6, 0xffff, len(data), resp_len)
-    ser.write(pkt)
-    expect_resp(ser, seq, "SENT")
-
-    if resp_len:
-        resp = ser.read(resp_len)
-        # expect_resp(ser, seq, "RESP")
-        return resp
-    else:
-        send_mister_data(data)
-        return None
-
 STROBE = 0x10
 BLK_START = 0x20
 BLK_END = 0x40
 
-def send_mister_data(data):
-    enc = []
+class Connection:
+    def __init__(self, ser=None, mister=None):
+        self.ser = ser
+        self.mister_client = None
+        self.mister_stdin = None
 
-    enc.append(BLK_START)
-    enc.append(0)
+        client = paramiko.client.SSHClient()
+        client.load_system_host_keys()
+        client.connect('mister-dev', username='root')
+        stdin, stdout, stderr = client.exec_command("cat > /dev/MiSTer_dbg")
+        self.mister_client = client
+        self.mister_stdin = stdin
 
-    for b in data:
-        enc.append(STROBE | (b & 0x0f))
-        enc.append(0)
-        enc.append(STROBE | (b >> 4))
-        enc.append(0)
 
-    enc.append(BLK_END)
-    enc.append(0)
+    def expect_resp(self, seq, expected):
+        while True:
+            resp = self.ser.read_until().decode('utf-8', errors='replace').strip()
+            if not resp.startswith("DEBUG:"):
+                break
+            print(resp)
+        
+        sequence_str, _, status = resp.partition(' ')
+        
+        try:
+            sequence = int(sequence_str)
+        except ValueError:
+            raise CommsException(f"Unrecognized sequence number: {resp}")
+        
+        if sequence != seq:
+            raise CommsException(f"Unexpected sequence number: {sequence} != {seq} '{resp}'")
+        
+        if status != expected:
+            raise CommandException(f"Unexpected status: {status} != {expected} '{resp}'")
 
-    out = b''.join( ((x ^ 0xf0) & 0xff).to_bytes(1, 'little') for x in enc )
     
-    subprocess.run(["ssh", "root@mister-dev", "cat > /dev/MiSTer_dbg"], input=out)
+    def send(self, data, resp_len = 0):
+        if self.ser:
+            seq = random.randint(0, 127)
+            for ofs in range(0, len(data), 32):
+                end = min(len(data), ofs+32)
+                chunk = data[ofs:end]
+                pkt = struct.pack("<BBBBBBH", MAGIC[0], MAGIC[1], MAGIC[2], MAGIC[3], seq & 0x7f, len(chunk) + 2, ofs & 0xffff) + chunk
+                self.ser.write(pkt)
+                self.expect_resp(seq, "ACK")
+                seq = ( seq + 1 ) & 0x7f
+            
+            pkt = struct.pack("<BBBBBBHHH", MAGIC[0], MAGIC[1], MAGIC[2], MAGIC[3], seq & 0x7f, 6, 0xffff, len(data), resp_len)
+            self.ser.write(pkt)
+            self.expect_resp(seq, "SENT")
+
+            if resp_len:
+                resp = self.ser.read(resp_len)
+                # expect_resp(ser, seq, "RESP")
+                return resp
+        
+        if self.mister_stdin and resp_len == 0:
+            self.send_mister_data(data)
+            return None
+
+    def send_mister_data(self, data):
+        enc = []
+
+        enc.append(BLK_START)
+        enc.append(0)
+
+        for b in data:
+            enc.append(STROBE | (b & 0x0f))
+            enc.append(0)
+            enc.append(STROBE | (b >> 4))
+            enc.append(0)
+
+        enc.append(BLK_END)
+        enc.append(0)
+
+        out = b''.join( ((x ^ 0xf0) & 0xff).to_bytes(1, 'little') for x in enc )
+
+        self.mister_stdin.write(out)
+        self.mister_stdin.flush()
+
+        time.sleep(.1)
+        
+        #subprocess.run(["ssh", "root@mister-dev", "cat > /dev/MiSTer_dbg"], input=out)
+
+
 
 class FillWord:
     def __init__(self, value):
@@ -276,8 +299,8 @@ class FillByte:
 
 
 class MemoryByteView:
-    def __init__(self, ser):
-        self.ser = ser
+    def __init__(self, conn: Connection):
+        self.conn = conn
     
     def __len__(self):
         return 0x100000
@@ -286,7 +309,7 @@ class MemoryByteView:
         if type(key) == int:
             if key < 0 or key >= 0x100000:
                 raise IndexError()
-            resp = send_data(self.ser, read_words(key, 1), 2)
+            resp = self.conn.send(read_words(key, 1), 2)
             return int.from_bytes(resp, 'little')
         elif type(key) == slice:
             full_data = b''
@@ -297,7 +320,7 @@ class MemoryByteView:
                     cmd = read_words(start, int(sz / 2))
                 else:
                     cmd = read_bytes(start, sz)
-                full_data += send_data(self.ser, cmd, sz)
+                full_data += self.conn.send(cmd, sz)
             
             return full_data[::key.step]
         else:
@@ -307,26 +330,58 @@ class MemoryByteView:
         if type(key) == int:
             if key < 0 or key >= 0x100000:
                 raise IndexError()
-            send_data(self.ser, write_words(key, value.to_bytes(2, 'little')))
+            self.conn.send(write_words(key, value.to_bytes(2, 'little')))
         elif type(key) == slice:
             if type(value) == FillWord:
-                send_data(self.ser, memsetw(key.start, value.value, int((key.stop - key.start) / 2)))
+                self.conn.send(memsetw(key.start, value.value, int((key.stop - key.start) / 2)))
             elif type(value) == FillByte:
-                send_data(self.ser, memsetb(key.start, value.value, key.stop - key.start))
+                self.conn.send(memsetb(key.start, value.value, key.stop - key.start))
             else:
                 for start in range(0, len(value), 1024):
                     end = min(start+1024, len(value))
                     sz = end - start
                     if ( key.start & 1 ) == 0 and ( sz & 1 ) == 0:
-                        send_data(self.ser, write_words(key.start + start, value[start:end]))
+                        self.conn.send(write_words(key.start + start, value[start:end]))
                     else:
-                        send_data(self.ser, write_bytes(key.start + start, value[start:end]))
+                        self.conn.send(write_bytes(key.start + start, value[start:end]))
+        else:
+            raise TypeError()
+
+class AudioMemoryView:
+    def __init__(self, conn: Connection):
+        self.conn = conn
+    
+    def __len__(self):
+        return 0x80
+    
+    def __getitem__(self, key):
+        if type(key) == int:
+            if key < 0 or key >= 0x80:
+                raise IndexError()
+            resp = self.conn.send(read_audio(key, 1), 1)
+            return int.from_bytes(resp, 'little')
+        elif type(key) == slice:
+            full_data = b''
+            start = key.start & 0xfe
+            end = key.stop
+            sz = int(( end - start ) / 2)
+            return self.conn.send(read_audio(start, sz), sz)
+        else:
+            raise TypeError()
+
+    def __setitem__(self, key, value):
+        if type(key) == int:
+            if key < 0 or key > 0xff:
+                raise IndexError()
+            self.conn.send(write_audio(key, value.to_bytes(1, 'little')))
+        elif type(key) == slice:
+            self.conn.send(write_audio(key.start, value))
         else:
             raise TypeError()
 
 class MemoryWordView:
-    def __init__(self, ser):
-        self.ser = ser
+    def __init__(self, conn: Connection):
+        self.conn = conn
     
     def __len__(self):
         return 0x100000
@@ -335,7 +390,7 @@ class MemoryWordView:
         if type(key) == int:
             if key < 0 or key >= 0x100000:
                 raise IndexError()
-            data = send_data(self.ser, read_words(key, 1), 2)
+            data = self.conn.send(read_words(key, 1), 2)
             return int.from_bytes(data[0:2], 'little')
         else:
             raise TypeError()
@@ -344,7 +399,7 @@ class MemoryWordView:
         if type(key) == int:
             if key < 0 or key >= 0x100000:
                 raise IndexError()
-            send_data(self.ser, write_words(key, value.to_bytes(2, 'little')))
+            self.conn.send(write_words(key, value.to_bytes(2, 'little')))
         else:
             raise TypeError()
 
@@ -387,28 +442,33 @@ class M92:
         time.sleep(0.1) 
         self.mem = MemoryByteView(self.conn)
         self.memw = MemoryWordView(self.conn)
+        self.audio = AudioMemoryView(self.conn)
     
     def execute(self, code: Code):
         self.memb[code.org:] = code.assembled
-        send_data(self.conn, far_call(code.org))
+        self.conn.send(far_call(code.org))
 
 
-def find_port(device_path=None):
+
+
+def find_port(device_path=None) -> Connection:
     if device_path:
         print(f"Using {device_path}")
-        return serial.Serial(device_path)
+        return Connection(serial.Serial(device_path))
     
     ports = list(serial.tools.list_ports.grep(".*usbmodem"))
     if len(ports) > 0:
         port = ports[0].device
         print(f"Using {port}")
-        return serial.Serial(port, timeout=5, baudrate=115200, dsrdtr=True)
+        return Connection(serial.Serial(port, timeout=5, baudrate=115200, dsrdtr=True))
     
-    raise Exception("Could not find a serial port")
+    print("Could not find a serial port")
+    return Connection(None, None)
+
 
 
 def interactive(device_path=None):
-    ser = find_port(device_path)
+    conn = find_port(device_path)
 
     histfile = os.path.join(os.path.expanduser("~"), ".m92con_history")
     try:
@@ -434,9 +494,9 @@ def interactive(device_path=None):
                 resp_data = None
                 try:
                     if type(cmd) == CmdWithResponse:
-                        resp_data = send_data(ser, cmd.cmd_data, cmd.resp_size)
+                        resp_data = conn.send(cmd.cmd_data, cmd.resp_size)
                     else:
-                        send_data(ser, cmd)
+                        conn.send(cmd)
                 except CommsException as e:
                     print( f"ERROR: {e}")
                 else:
@@ -448,7 +508,7 @@ def interactive(device_path=None):
 
 
 if __name__ == '__main__':
-    send_mister_data(b'')
+    # send_mister_data(b'')
     if len(sys.argv) == 1:
         interactive()
 

@@ -5,4 +5,5 @@ captures/
 original/*.zip
 nvram/
 comment/
+venv/
 .DS_Store

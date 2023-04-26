@@ -52,41 +52,64 @@ int man_read() {
   return ret;
 }
 
-unsigned short diffs[256];
-uint8_t diff_idx = 0;
+enum class TimingState {
+  Idle,
+  WaitingForLow,
+  Active
+};
+
+uint8_t timing_count = 0;
+volatile TimingState timing_state = TimingState::Idle;
+volatile unsigned short timing_diffs[256];
+volatile uint8_t timing_diff_idx = 0;
 
 void manchester_isr()
 {
   unsigned long us = micros();
   unsigned short diff = us - man_prev_us;
+  bool pin_state = digitalRead(21);
+
   man_prev_us = us;
 
-  diffs[diff_idx] = diff;
-  diff_idx++;
-
-  if ( diff > MAN_TIMEOUT ) {
-    man_sync = true;
-    man_bits = 0;
-    man_bit_count = 0;
+  if (timing_state == TimingState::WaitingForLow)
+  {
+    if (!pin_state) {
+      timing_state = TimingState::Active;
+      timing_diff_idx = 0;
+    }
+  } else if (timing_state == TimingState::Active) {
+    if (!pin_state) {
+      timing_diffs[timing_diff_idx] = diff;
+      timing_diff_idx++;
+      if (timing_diff_idx >= timing_count) {
+        timing_state = TimingState::Idle;
+      }
+    }
   } else {
-    if (man_sync) {
-      man_clk_us = diff;
-      man_midpoint = true;
-      man_sync = false;
+    if ( diff > MAN_TIMEOUT ) {
+      man_sync = true;
+      man_bits = 0;
+      man_bit_count = 0;
     } else {
-      unsigned short half_clk = man_clk_us >> 1;
-      unsigned short high = man_clk_us + half_clk;
-      if (diff < high) { // short pulse
-        if (man_midpoint) { // end transition
-          man_midpoint = false;
-          man_bit(true);
-        } else {
-          man_midpoint = true;
-        }
-        man_clk_us = ( man_clk_us + diff ) >> 1;
+      if (man_sync) {
+        man_clk_us = diff;
+        man_midpoint = true;
+        man_sync = false;
       } else {
-        man_bit(false);
-        man_clk_us = ( man_clk_us + man_clk_us + diff ) >> 2;
+        unsigned short half_clk = man_clk_us >> 1;
+        unsigned short high = man_clk_us + half_clk;
+        if (diff < high) { // short pulse
+          if (man_midpoint) { // end transition
+            man_midpoint = false;
+            man_bit(true);
+          } else {
+            man_midpoint = true;
+          }
+          man_clk_us = ( man_clk_us + diff ) >> 1;
+        } else {
+          man_bit(false);
+          man_clk_us = ( man_clk_us + man_clk_us + diff ) >> 2;
+        }
       }
     }
   }
@@ -222,11 +245,22 @@ void loop() {
     uint16_t ofs = *(uint16_t *)&pkt[0];
     if (ofs == 0xffff) {
       uint16_t len = *(uint16_t *)&pkt[2];
-      uint16_t resp_len = *(uint16_t *)&pkt[4];
+      uint16_t resp_len = (*(uint16_t *)&pkt[4]) & 0x7fff;
+      bool timing_resp = ((*(uint16_t *)&pkt[4]) & 0x8000) != 0;
 
       // flush receive buffer
       if (resp_len) {
         while( man_read() != -1 ) {};
+      }
+
+      if (timing_resp) {
+        timing_count = resp_len;
+        timing_diff_idx = 0;
+        if( digitalRead(21) ) {
+          timing_state = TimingState::WaitingForLow;
+        } else {
+          timing_state = TimingState::Active;
+        }
       }
 
       send_block(cmd_buffer, len);
@@ -234,26 +268,22 @@ void loop() {
       Serial.println(" SENT");
 
       unsigned long start_ms = millis();
-      uint16_t bytes_read = 0;
-      while( ( millis() < (start_ms + 1000) ) && bytes_read < resp_len ) {
-        int resp = man_read();
-        if( resp != -1 ) {
-          Serial.write((uint8_t)resp);
-          bytes_read++;
+      if (timing_resp) {
+        while( timing_state != TimingState::Idle && millis() < (start_ms + 10000)) {}
+
+        for( uint16_t i = 0; i < resp_len; i++ ) {
+          Serial.write(timing_diffs[i]);
+        }
+      } else {
+        uint16_t bytes_read = 0;
+        while( ( millis() < (start_ms + 1000) ) && bytes_read < resp_len ) {
+          int resp = man_read();
+          if( resp != -1 ) {
+            Serial.write((uint8_t)resp);
+            bytes_read++;
+          }
         }
       }
-      /*if (resp_len) {
-        Serial.print("DEBUG: us: ");
-
-        for( int i = 0; i < 64; i++ )
-        {
-          Serial.print(diffs[i]);
-          Serial.print(" ");
-        }
-        Serial.println();
-        Serial.print(seq);
-        Serial.println(" RESP");
-      }*/
     } else if( ofs < sizeof(cmd_buffer)) {
       if (ofs + sz > sizeof(cmd_buffer)) {
         Serial.print(seq);

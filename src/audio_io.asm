@@ -8,6 +8,8 @@
 ; ah - value
 ; preserves ax
 write_audio:
+	cli
+
 	push bx
 	push cx
     push ax
@@ -32,6 +34,8 @@ write_audio:
 	mov al, bh
 	out 0x00, al
 
+	sti
+	
 .wait_value:
 	cmp byte ss:[audio_value_ready], 0
 	je .wait_value

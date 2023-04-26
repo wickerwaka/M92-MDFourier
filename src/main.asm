@@ -320,6 +320,10 @@ vblank_handler:
 	mov ax, RAM_SEG
 	mov ds, ax
 	inc word ds:[vblank_count]
+	
+	; send vblank signal to audio cpu
+	mov al, 0xff
+	out 0x00, al
 
 	call comms_read
 
