@@ -50,54 +50,23 @@ entry:
 	mov sp, stack_start
 
 	call config_system
-	mov byte [cmd_write_pos], 0
+
+	mov cx, 0xffff
+.stall:
+	loop .stall
+
+	call config_timer
+	mov byte [cmd_start], 0
 	sti
 	
-	;mov al, 1
-	;call execute_sequence
-
 .cmd_wait:
-	cmp byte [cmd_write_pos], 3
-	jl .cmd_wait
+    cmp byte [cmd_start], 0
+    je .cmd_wait
 
-	cli
-
-	mov al, [cmd_buf] ; cmd
-
-	mov bh, 0x80
-	mov bl, [cmd_buf + 1] ; addr
-	
-	mov dl, [cmd_buf + 2] ; value
-	
-	cmp al, 0
-	je .read
-
-	cmp bl, 0xff
-	jne .write
-
-	; do ym2151
-	mov [0x8046], dl ; write response
-	mov byte [cmd_write_pos], 0
-	sti
-
-	mov al, dl
+	mov al, 3
 	call execute_sequence
-	jmp .cmd_wait
+    mov byte [cmd_start], 0
 
-
-.write:
-	mov [bx], dl
-	jmp .finish
-
-.read:
-	mov dl, [bx]
-
-.finish:
-	mov [0x8046], dl ; write response
-
-	mov byte [cmd_write_pos], 0
-	sti
-	
 	jmp .cmd_wait
 
 
@@ -108,21 +77,15 @@ execute_sequence:
 	call wait_vblank
 	call wait_vblank
 
-	call execute_start_tone
+	;call execute_start_tone
 
 	call wait_vblank
 	call wait_vblank
 
 	call execute_pulse_train
 	call execute_silence
-	test al, 0x2
-	jz .skip_fm
 	call execute_fm
-.skip_fm:
-	test al, 0x1
-	jz .skip_pcm
 	call pcm_play
-.skip_pcm:
 	call execute_silence
 	call execute_pulse_train
 
@@ -141,7 +104,7 @@ config_system:
 	mov byte [PRC], 0x4c
 	mov byte [PMC1], 0x80
 
-	mov byte [EXIC0], 0x47
+	mov byte [EXIC0], 0x07
 	mov byte [EXIC1], 0x07
 	mov byte [EXIC2], 0x47
 
@@ -152,6 +115,26 @@ config_system:
 
 	pop ds
 	ret
+
+config_timer:
+	push dx
+
+	; CLKA = 0x92 == 16.66357036997719ms
+	mov dx, 0x1100 ; CLKA2
+	call ym_write
+	mov dx, 0x1017 ; CLKA1
+	call ym_write
+
+	; CLKB
+	mov dx, 0x1200
+	call ym_write
+
+	mov dx, 0x143f ; 00110101 F Reset, IRQ A EN, LOAD A
+	call ym_write
+
+	pop dx
+	ret
+
 
 wait_vblank:
 	push ax
@@ -172,6 +155,8 @@ wait_vblank:
 
 ; dh - reg address, dl - reg value
 ym_write:
+	pushf
+	cli
 	push ds
 	push ax
 	mov ax, 0xa800
@@ -193,6 +178,7 @@ ym_write:
 
 	pop ax
 	pop ds
+	popf
 
 	ret
 
@@ -205,8 +191,9 @@ pcm_play:
 	mov byte [0x04], 0xff
 	mov byte [0x06], 0xff
 	mov byte [0x08], 0xc7
-	mov byte [0x0a], 0x3f
+	mov byte [0x0a], 0x0
 
+	xor dx, dx
 	call wait_vblank
 
 	mov byte [0x0c], 0x02
@@ -214,6 +201,8 @@ pcm_play:
 	mov cx, 1075
 .delay:
 	call wait_vblank
+	inc dx
+	mov byte [0x0a], dl
 	loop .delay
 
 	mov byte [0x0c], 0x00
@@ -263,9 +252,6 @@ ym_init:
 	call ym_write
 
 	mov dx, 0x0f00
-	call ym_write
-
-	mov dx, 0x1400
 	call ym_write
 
 	mov dx, 0x1800
@@ -428,35 +414,47 @@ execute_fm:
 
 align 4
 p0_handler:
-	nop
-	nop
-	nop
-	nop
+	push dx
+	push ax
+	push cx
+	mov al, ss:[0x8042]
+	and al, 0x3
+	jz .p0_done
+
+	mov cx, 8
+.delay:
+	loop .delay
+
+	mov dx, 0x1435
+	call ym_write
+	inc byte ss:[vblank_count]
+
+.p0_wait:
+	mov al, ss:[0x8042]
+	and al, 0x3
+	jnz .p0_wait
+
+.p0_done:
+	pop cx
+	pop ax
+	pop dx
 	db 0x0f, 0x92 ; FINI
 	iret
 
 align 4
 p1_handler:
 	push ax
-	push bx
-	xor bh, bh
-	mov bl, ss:[cmd_write_pos]
 	mov al, ss:[0x8044]
-	cmp al, 0xff
-	jne .not_vblank
-	cmp bl, 0x00
-	jne .not_vblank
-	inc byte ss:[vblank_count]
-	jmp .not_cmd
+	cmp al, 0x00
+	je .not_cmd
+	cmp al, 0x20
+    jge .not_cmd
 
-.not_vblank:
-	mov ss:[cmd_buf + bx], al
-	inc bl
-	mov ss:[cmd_write_pos], bl
+    mov byte [cmd_start], 0xff
 
 .not_cmd:
-	mov ss:[0x8044], al
-	pop bx
+    mov ss:[0x8044], al
+
 	pop ax
 	db 0x0f, 0x92 ; FINI
 	iret
@@ -471,8 +469,7 @@ generic_handler:
 ;
 section .bss
 alignb 2
-cmd_buf: resb 256
-cmd_write_pos: resb 1
+cmd_start: resb 1
 vblank_count: resb 1
 
 
