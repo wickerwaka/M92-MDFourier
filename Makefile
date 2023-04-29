@@ -65,7 +65,7 @@ $(GAME_DIR)/$(SAMPLE_BIN): $(DATA_DIR)/mdfourier-dac-16000_nosync.wav | $(GAME_D
 	$(WAVE2BIN) $@ $<
 
 $(GAME_DIR)/m92_mdfourier.zip: $(BUILT_BINS)
-	zip -j - $^ > $@
+	zip -j $@ $^
 
 $(BUILD_DIR):
 	mkdir -p $@

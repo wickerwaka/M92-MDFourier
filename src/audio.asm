@@ -86,6 +86,7 @@ execute_sequence:
 	call execute_silence
 	call execute_fm
 	call pcm_play
+	call pcm_play_volume
 	call execute_silence
 	call execute_pulse_train
 
@@ -182,6 +183,50 @@ ym_write:
 
 	ret
 
+pcm_play_volume:
+	PUSH_ALL
+	mov ax, 0xa800
+	mov ds, ax
+	mov al, 0x3f
+	mov byte [0x00], 1
+	mov byte [0x02], 0
+	mov byte [0x04], 0xff
+	mov byte [0x06], 0xff
+	mov byte [0x08], 0xc7
+	mov byte [0x0a], al
+
+	xor dl, dl
+	call wait_vblank
+	call wait_vblank
+	call wait_vblank
+	call wait_vblank
+	call wait_vblank
+
+	mov byte [0x0c], 0x02
+
+.start:
+	mov cx, 8
+	mov byte [0x0a], al
+.delay_play:
+	call wait_vblank
+	loop .delay_play
+
+	mov byte [0x0a], 0x0
+	dec al
+
+	mov cx, 4
+.delay_silence:
+	call wait_vblank
+	loop .delay_silence
+
+	cmp al, 0xff
+	jne .start
+
+	mov byte [0x0c], 0x00
+
+	POP_ALL
+	ret
+
 pcm_play:
 	PUSH_ALL
 	mov ax, 0xa800
@@ -191,18 +236,15 @@ pcm_play:
 	mov byte [0x04], 0xff
 	mov byte [0x06], 0xff
 	mov byte [0x08], 0xc7
-	mov byte [0x0a], 0x0
+	mov byte [0x0a], 0x3f
 
-	xor dx, dx
 	call wait_vblank
 
 	mov byte [0x0c], 0x02
 
-	mov cx, 1075
+	mov cx, 1079
 .delay:
 	call wait_vblank
-	inc dx
-	mov byte [0x0a], dl
 	loop .delay
 
 	mov byte [0x0c], 0x00
